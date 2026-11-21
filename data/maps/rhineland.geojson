@@ -1,0 +1,38 @@
+{
+  "type": "FeatureCollection",
+  "name": "rhineland_sample",
+  "minrts_default_terrain": "plain",
+  "crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+  "features": [
+    { "type": "Feature", "properties": { "name": "North Sea", "terrain": "sea" },
+      "geometry": { "type": "Polygon", "coordinates": [[[5.0, 52.05], [8.0, 52.05], [8.0, 52.5], [5.0, 52.5], [5.0, 52.05]]] } },
+
+    { "type": "Feature", "properties": { "name": "Ardennes", "terrain": "forest" },
+      "geometry": { "type": "Polygon", "coordinates": [
+        [[5.3, 49.7], [6.6, 49.7], [6.6, 50.6], [5.3, 50.6], [5.3, 49.7]],
+        [[5.8, 50.0], [6.1, 50.0], [6.1, 50.25], [5.8, 50.25], [5.8, 50.0]]
+      ] } },
+    { "type": "Feature", "properties": { "name": "Black Forest", "terrain": "forest" },
+      "geometry": { "type": "Polygon", "coordinates": [[[7.8, 47.9], [8.6, 47.9], [8.6, 48.9], [7.8, 48.9], [7.8, 47.9]]] } },
+    { "type": "Feature", "properties": { "name": "Thuringian Forest", "terrain": "forest" },
+      "geometry": { "type": "Polygon", "coordinates": [[[10.0, 50.3], [11.6, 50.3], [11.6, 50.9], [10.0, 50.9], [10.0, 50.3]]] } },
+
+    { "type": "Feature", "properties": { "name": "Bavarian plateau", "terrain": "plateau" },
+      "geometry": { "type": "Polygon", "coordinates": [[[9.0, 47.9], [12.0, 47.9], [12.0, 48.45], [9.0, 48.45], [9.0, 47.9]]] } },
+    { "type": "Feature", "properties": { "name": "Alps", "terrain": "mountain" },
+      "geometry": { "type": "MultiPolygon", "coordinates": [
+        [[[7.0, 47.5], [9.6, 47.5], [9.6, 47.85], [7.0, 47.85], [7.0, 47.5]]],
+        [[[9.6, 47.5], [12.0, 47.5], [12.0, 47.75], [9.6, 47.75], [9.6, 47.5]]]
+      ] } },
+    { "type": "Feature", "properties": { "name": "Lower Saxony marsh", "terrain": "swamp" },
+      "geometry": { "type": "Polygon", "coordinates": [[[8.5, 51.8], [9.6, 51.8], [9.6, 52.3], [8.5, 52.3], [8.5, 51.8]]] } },
+
+    { "type": "Feature", "properties": { "name": "Rhine", "terrain": "river" },
+      "geometry": { "type": "LineString", "coordinates": [[8.6, 47.6], [7.6, 47.7], [7.6, 48.6], [8.4, 49.4], [8.3, 50.0], [7.6, 50.4], [7.0, 50.9], [6.6, 51.5], [6.1, 51.95]] } },
+    { "type": "Feature", "properties": { "name": "Main", "terrain": "river" },
+      "geometry": { "type": "LineString", "coordinates": [[11.0, 50.0], [10.0, 49.9], [9.2, 50.0], [8.3, 50.0]] } },
+
+    { "type": "Feature", "properties": { "name": "cities", "terrain": "city" },
+      "geometry": { "type": "MultiPoint", "coordinates": [[6.96, 50.94], [8.68, 50.11], [9.18, 48.78], [11.58, 48.14], [11.08, 49.45], [7.75, 48.58], [6.13, 49.61], [7.47, 51.51]] } }
+  ]
+}
