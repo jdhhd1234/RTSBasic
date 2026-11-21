@@ -6,28 +6,10 @@
 #include <array>
 #include <cctype>
 #include <cmath>
-#include <numbers>
 #include <string>
 
 namespace
 {
-    Color TerrainColor(const GameData& data, Terrain terrain)
-    {
-        const auto& c = data.terrain[ToIndex(terrain)].color;
-        return { c[0], c[1], c[2], 255 };
-    }
-
-    Color WeatherTint(Weather weather)
-    {
-        switch (weather)
-        {
-        case Weather::Rain: return { 40, 70, 140, 45 };
-        case Weather::Snow: return { 245, 245, 255, 80 };
-        case Weather::Fog: return { 150, 150, 150, 70 };
-        default: return { 0, 0, 0, 0 };
-        }
-    }
-
     // 사단의 대표 병과: 지원이 아닌 첫 대대.
     UnitClass PrimaryClass(const Division& division, const GameData& data)
     {
@@ -129,60 +111,6 @@ Color FactionColor(int faction)
 Vector2 CounterHalfSize(float zoom)
 {
     return { 13.0f / zoom, 9.0f / zoom };
-}
-
-void DrawWorldMap(const World& world, const GameData& data, float zoom)
-{
-    const HexMap& map = world.map;
-    const float radius = map.hexDistance / std::numbers::sqrt3_v<float>;
-
-    for (int i = 0; i < static_cast<int>(map.hexes.size()); ++i)
-    {
-        const Hex& hex = map.hexes[static_cast<std::size_t>(i)];
-        const Vector2 center = ToRay(HexCenter(IndexToHex(map, i), map.hexDistance));
-        DrawPoly(center, 6, radius + 0.4f, 30.0f, TerrainColor(data, hex.terrain));
-        if (hex.owner >= 0)
-        {
-            DrawPoly(center, 6, radius + 0.4f, 30.0f, Fade(FactionColor(hex.owner), 0.22f));
-        }
-        const Color tint = WeatherTint(world.weather[static_cast<std::size_t>(hex.weatherRegion)].weather);
-        if (tint.a > 0)
-        {
-            DrawPoly(center, 6, radius + 0.4f, 30.0f, tint);
-        }
-        DrawPolyLines(center, 6, radius, 30.0f, Fade(BLACK, 0.10f));
-    }
-
-    // 전선: 소유 진영이 다른 인접 헥스 사이 변
-    const float thick = 2.5f / zoom;
-    for (int i = 0; i < static_cast<int>(map.hexes.size()); ++i)
-    {
-        const int owner = map.hexes[static_cast<std::size_t>(i)].owner;
-        if (owner < 0)
-        {
-            continue;
-        }
-        const HexCoord coord = IndexToHex(map, i);
-        const Vec2 a = HexCenter(coord, map.hexDistance);
-        for (const HexCoord nb : HexNeighbors(coord))
-        {
-            if (!InBounds(map, nb))
-            {
-                continue;
-            }
-            const int j = HexIndex(map, nb);
-            const int other = map.hexes[static_cast<std::size_t>(j)].owner;
-            if (j < i || other < 0 || other == owner)
-            {
-                continue;
-            }
-            const Vec2 b = HexCenter(nb, map.hexDistance);
-            const Vec2 mid = { (a.x + b.x) / 2.0f, (a.y + b.y) / 2.0f };
-            const float length = Distance(a, b);
-            const Vec2 perp = { -(b.y - a.y) / length * radius / 2.0f, (b.x - a.x) / length * radius / 2.0f };
-            DrawLineEx({ mid.x + perp.x, mid.y + perp.y }, { mid.x - perp.x, mid.y - perp.y }, thick, Color{ 20, 20, 20, 230 });
-        }
-    }
 }
 
 void DrawWorldUnits(const World& world, const GameData& data, float zoom, const std::vector<entt::entity>& selected)

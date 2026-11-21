@@ -21,7 +21,6 @@ Color FactionColor(int faction);
 Color ResourceColor(Resource resource);
 
 // 월드 좌표(km) 그리기. BeginMode2D 안에서 호출.
-void DrawWorldMap(const World& world, const GameData& data, float zoom);
 void DrawWorldUnits(const World& world, const GameData& data, float zoom, const std::vector<entt::entity>& selected);
 
 // 화면 좌표 그리기. EndMode2D 뒤에 호출.

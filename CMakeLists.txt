@@ -46,6 +46,8 @@ add_library(minrts_core STATIC
     src/core/phrases.cpp
     src/sim/hex.cpp
     src/sim/map.cpp
+    src/sim/spline.cpp
+    src/sim/map_features.cpp
     src/sim/geojson_map.cpp
     src/sim/rules.cpp
     src/sim/simulation.cpp
@@ -72,7 +74,8 @@ add_executable(minrts
     src/app/sandbox_screen.cpp
     src/app/game_screen.cpp
     src/app/economy_panel.cpp
-    src/app/profiler_overlay.cpp)
+    src/app/profiler_overlay.cpp
+    src/app/map_view.cpp)
 target_link_libraries(minrts PRIVATE minrts_core raylib)
 
 add_executable(minrts_tests tests/sim_tests.cpp)

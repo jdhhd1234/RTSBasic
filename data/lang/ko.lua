@@ -160,8 +160,8 @@ return {
     ["Pause"] = "일시정지",
     ["PAUSED"] = "일시정지",
     ["Surrender"] = "항복",
-    ["Spectating   LMB inspect   Tab economy   F3 profiler   Space pause   +/- speed   WASD/RMB drag pan   Wheel zoom   Esc menu"] = "관전 중   좌클릭 정보   Tab 경제 탭   F3 프로파일러   Space 일시정지   +/- 배속   WASD/우클릭 드래그 이동   휠 확대   Esc 메뉴",
-    ["LMB select (Shift add)   RMB move / drag pan   R retreat   1-6 produce   C conscript   Tab economy   Space pause   +/- speed   Esc menu"] = "좌클릭 선택(Shift 추가)   우클릭 이동 / 드래그 화면이동   R 후퇴   1-6 생산   C 징집   Tab 경제 탭   Space 일시정지   +/- 배속   Esc 메뉴",
+    ["Spectating   LMB inspect   Tab economy   M map   F3 profiler   Space pause   +/- speed   WASD/RMB drag pan   Wheel zoom   Esc menu"] = "관전 중   좌클릭 정보   Tab 경제 탭   M 지도   F3 프로파일러   Space 일시정지   +/- 배속   WASD/우클릭 드래그 이동   휠 확대   Esc 메뉴",
+    ["LMB select (Shift add)   RMB move / drag pan   R retreat   1-6 produce   C conscript   Tab economy   M map   Space pause   +/- speed   Esc menu"] = "좌클릭 선택(Shift 추가)   우클릭 이동 / 드래그 화면이동   R 후퇴   1-6 생산   C 징집   Tab 경제 탭   M 지도   Space 일시정지   +/- 배속   Esc 메뉴",
     ["divisions selected"] = "개 사단 선택됨",
     ["Total HP"] = "총 체력",
     ["Supply"] = "보급",
@@ -226,4 +226,8 @@ return {
     ["Reset"] = "초기화",
     ["Save"] = "저장",
     ["F3 profiler"] = "F3 프로파일러",
+    -- 전략 / 작전 지도
+    ["Strategic map (M)"] = "전략 지도 (M)",
+    ["Operational map (M)"] = "작전 지도 (M)",
+    ["M map"] = "M 지도",
 }

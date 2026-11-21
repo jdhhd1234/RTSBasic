@@ -5,10 +5,12 @@
 #include "sim/components.hpp"
 #include "sim/economy.hpp"
 #include "sim/geojson_map.hpp"
+#include "sim/map_features.hpp"
 #include "sim/profile_report.hpp"
 #include "sim/rules.hpp"
 #include "sim/scenario.hpp"
 #include "sim/simulation.hpp"
+#include "sim/spline.hpp"
 #include "sim/systems.hpp"
 
 #include <algorithm>
@@ -57,6 +59,93 @@ namespace
             }
         }
         Check(HexDistance({ 0, 0 }, { 5, 0 }) == 5, "row distance");
+    }
+
+    void TestSplines()
+    {
+        const std::vector<Vec2> points{ { 0.0f, 0.0f }, { 2.0f, 3.0f }, { 2.0f, 3.0f }, { 6.0f, 3.0f } };
+        constexpr int segments = 4;
+        const auto catmull = SampleCatmullRom(points, segments, false);
+        const bool hasAllSpans = catmull.size() == (points.size() - 1) * segments + 1;
+        Check(hasAllSpans, "open Catmull-Rom samples every span");
+        if (hasAllSpans)
+        {
+            for (std::size_t i = 0; i < points.size(); ++i)
+            {
+                Check(Near(Distance(catmull[i * segments], points[i]), 0.0f), "Catmull-Rom passes through each control point");
+            }
+        }
+        Check(std::all_of(catmull.begin(), catmull.end(), [](Vec2 point)
+        {
+            return std::isfinite(point.x) && std::isfinite(point.y);
+        }), "Catmull-Rom handles coincident control points");
+        const auto closed = SampleCatmullRom(points, segments, true);
+        Check(closed.size() == points.size() * segments + 1 && Near(Distance(closed.back(), points.front()), 0.0f),
+              "closed Catmull-Rom returns to the first control point");
+        const auto uneven = SampleCatmullRom({ { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 4.0f }, { 10.0f, 4.0f } }, 2, false);
+        Check(uneven.size() == 7 && Near(uneven[3].x, 13.0f / 15.0f) && Near(uneven[3].y, 28.0f / 15.0f),
+              "Catmull-Rom uses centripetal knots for unevenly spaced points");
+
+        const auto bezier = SampleCubicBezier(points[0], points[1], points[2], points[3], segments);
+        Check(bezier.size() == segments + 1 && Near(Distance(bezier.front(), points.front()), 0.0f)
+              && Near(Distance(bezier.back(), points.back()), 0.0f), "cubic Bezier includes both endpoints");
+        const auto arc = SampleArc({ 0.0f, 0.0f }, { 8.0f, 0.0f }, 0.25f, 2);
+        Check(arc.size() == 3 && Near(arc[1].x, 4.0f) && Near(arc[1].y, 1.5f), "arc bends sideways in proportion to its length");
+
+        const std::vector<Vec2> line{ { 0.0f, 0.0f }, { 1.0f, 1.0f }, { 2.0f, 2.0f }, { 3.0f, 3.0f } };
+        const auto simplified = SimplifyPolyline(line, 0.1f);
+        Check(simplified.size() == 2 && Near(Distance(simplified.front(), line.front()), 0.0f)
+              && Near(Distance(simplified.back(), line.back()), 0.0f), "simplification keeps the ends and removes collinear points");
+    }
+
+    void TestMapFeatures(const GameData& data)
+    {
+        HexMap map;
+        map.cols = map.rows = 4;
+        map.hexes.resize(16);
+        for (int i = 0; i < static_cast<int>(map.hexes.size()); ++i)
+        {
+            map.hexes[static_cast<std::size_t>(i)].owner = IndexToHex(map, i).col < 2 ? 0 : 1;
+        }
+        const auto fronts = FrontLines(map);
+        Check(fronts.size() == 1 && !fronts.front().closed && fronts.front().points.size() == 7,
+              "two halves have one open front with seven distinct edges");
+        if (!fronts.empty())
+        {
+            const auto& points = fronts.front().points;
+            for (const Vec2 point : points)
+            {
+                Check(point.x >= 1.5f * map.hexDistance && point.x <= 2.0f * map.hexDistance,
+                      "front edge midpoint lies between the halves");
+            }
+            const float stepY = 0.5f * HexCenter({ 0, 1 }, map.hexDistance).y;
+            Check(std::adjacent_find(points.begin(), points.end(), [&](Vec2 a, Vec2 b)
+            {
+                return !Near(std::abs(a.y - b.y), stepY);
+            }) == points.end(), "front edge midpoints follow the boundary in order");
+        }
+        for (Hex& hex : map.hexes)
+        {
+            hex.owner = 0;
+        }
+        map.hexes[static_cast<std::size_t>(HexIndex(map, { 1, 1 }))].owner = 1;
+        const auto loop = FrontLines(map);
+        Check(loop.size() == 1 && loop.front().closed && loop.front().points.size() == 6,
+              "an enclosed owner produces a closed front with six edges");
+
+        World world;
+        InitWorld(world, data, CampaignSetup(data, 0, 1, data.defaultTemplates, false), 42);
+        Check(!world.features.coastlines.empty(), "generated map has coastlines");
+        Check(!world.features.rivers.empty(), "generated map has rivers");
+        Check(!world.features.roads.empty(), "generated map has roads");
+
+        MatchSetup setup;
+        setup.customMap = true;
+        setup.map = map;
+        setup.bases.push_back({ PlayerFaction, BaseType::Hq, { 1, 1 } });
+        InitWorld(world, data, setup, 42);
+        Check(world.features.coastlines.empty() && world.features.rivers.empty() && world.features.roads.empty()
+              && world.features.sites == std::vector<int>{ HexIndex(map, { 1, 1 }) }, "reinitializing replaces features and deduplicates the base city");
     }
 
     void TestRules(const GameData& data)
@@ -431,6 +520,8 @@ int main(int argc, char** argv)
     Check(data.battalions.size() == 20, "20 battalions loaded");
 
     TestHex();
+    TestSplines();
+    TestMapFeatures(data);
     TestRules(data);
     TestTemplates(data);
     TestWorld(data);

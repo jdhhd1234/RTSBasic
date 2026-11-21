@@ -215,6 +215,7 @@ void InitWorld(World& world, const GameData& data, const MatchSetup& setup, std:
     world.winner = -1;
     world.endReason.clear();
     world.events.clear();
+    world.features = {};
     ResetProfiler(world.profiler);
 
     if (setup.customMap)
@@ -255,6 +256,12 @@ void InitWorld(World& world, const GameData& data, const MatchSetup& setup, std:
     }
 
     PlaceBases(world, data, setup);
+    std::vector<int> baseHexes;
+    for (const auto [entity, base] : world.registry.view<Base>().each())
+    {
+        baseHexes.push_back(base.hex);
+    }
+    BuildMapFeatures(world.map, data, baseHexes, world.features);
     AssignInitialTerritory(world, data);
     PlaceMines(world, data);
     for (int f = 0; f < FactionCount; ++f)

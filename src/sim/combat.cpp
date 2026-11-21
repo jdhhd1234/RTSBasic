@@ -13,7 +13,7 @@ namespace
 {
     // 인접 헥스 중심 거리는 정확히 20km라서 부동소수 오차를 흡수한다.
     constexpr float RangeTolerance = 0.5f;
-
+    
     float TargetDefense(const World& world, const GameData& data, const CombatTarget& target)
     {
         const float terrain = data.terrain[ToIndex(world.map.hexes[static_cast<std::size_t>(target.hex)].terrain)].defense;
@@ -93,6 +93,7 @@ void UpdateCombat(World& world, const GameData& data, float dt)
             * WeatherMultiplier(weather.attack, division.effects)
             * HpFactor(division.hp, division.maxHp, c)
             * (1.0f + variance(world.rng));
+            
         if (HasEffect(division.effects, Effect::Recon))
         {
             divisionMult *= 1.0f + c.reconAttack;

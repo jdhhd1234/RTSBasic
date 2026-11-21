@@ -3,6 +3,7 @@
 #include "core/game_data.hpp"
 #include "ai/ai_types.hpp"
 #include "sim/map.hpp"
+#include "sim/map_features.hpp"
 #include "sim/profiler.hpp"
 
 #include <entt/entt.hpp>
@@ -83,6 +84,7 @@ struct World
 {
     entt::registry registry;
     HexMap map;
+    MapFeatures features;
     std::vector<WeatherRegion> weather;
     std::vector<std::uint8_t> occupancy;     // 헥스별 진영 비트 (1 << faction)
     std::vector<entt::entity> baseAtHex;     // 헥스별 기지, 없으면 entt::null

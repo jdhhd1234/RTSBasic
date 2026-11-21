@@ -1,4 +1,5 @@
 #include "app/screens.hpp"
+#include "app/map_view.hpp"
 #include "app/render.hpp"
 #include "app/ui.hpp"
 #include "core/templates.hpp"
@@ -138,7 +139,24 @@ namespace
         return TextFormat(decimals == 1 ? "%.1f" : "%.2f", value);
     }
 
-    void DrawTopBar(const AppState& app)
+    // 전략 ↔ 작전 지도. 작전 지도는 focus(월드 좌표) 주변을 3배 확대하고, 돌아오면 전략 카메라를 복원한다.
+    void ToggleMapMode(GameView& view, Vector2 focus)
+    {
+        if (view.mapMode == MapMode::Strategic)
+        {
+            view.strategicCamera = view.camera;
+            view.camera.target = focus;
+            view.camera.zoom = std::clamp(view.camera.zoom * 3.0f, 0.3f, 8.0f);
+            view.mapMode = MapMode::Operational;
+        }
+        else
+        {
+            view.camera = view.strategicCamera;
+            view.mapMode = MapMode::Strategic;
+        }
+    }
+
+    void DrawTopBar(AppState& app)
     {
         const World& world = app.world;
         const FactionState& blue = world.factions[PlayerFaction];
@@ -152,6 +170,15 @@ namespace
             + "    x" + std::to_string(SpeedSteps[static_cast<std::size_t>(app.view.speedIndex)])
             + "    " + blue.name + " " + std::to_string(blue.ownedHexes) + " / " + red.name + " " + std::to_string(red.ownedHexes);
         TextDraw(text.c_str(), 12, 9, 20, RAYWHITE);
+
+        GameView& view = app.view;
+        const bool operational = view.mapMode == MapMode::Operational;
+        const Rectangle button = { static_cast<float>(width) - 230.0f, 4.0f, 220.0f, TopBarHeight - 8.0f };
+        if (UiButton(button, operational ? "Operational map (M)" : "Strategic map (M)", true, operational))
+        {
+            const Vector2 center = { static_cast<float>(GetScreenWidth()) / 2.0f, static_cast<float>(GetScreenHeight()) / 2.0f };
+            ToggleMapMode(view, GetScreenToWorld2D(center, view.camera));
+        }
 
         // 영토 비율 바
         const int total = std::max(1, blue.ownedHexes + red.ownedHexes);
@@ -251,8 +278,8 @@ namespace
 
         DrawSpeedControls(app, top);
         const char* help = Spectating(world)
-            ? "Spectating   LMB inspect   Tab economy   F3 profiler   Space pause   +/- speed   WASD/RMB drag pan   Wheel zoom   Esc menu"
-            : "LMB select (Shift add)   RMB move / drag pan   R retreat   1-6 produce   C conscript   Tab economy   Space pause   +/- speed   Esc menu";
+            ? "Spectating   LMB inspect   Tab economy   M map   F3 profiler   Space pause   +/- speed   WASD/RMB drag pan   Wheel zoom   Esc menu"
+            : "LMB select (Shift add)   RMB move / drag pan   R retreat   1-6 produce   C conscript   Tab economy   M map   Space pause   +/- speed   Esc menu";
         TextDraw(help, GetScreenWidth() - TextWidth(help, 16) - 12, static_cast<int>(top) + 10, 16, GRAY);
         UiTooltip(tooltip);
     }
@@ -389,6 +416,10 @@ void UpdateGame(AppState& app, const GameData& data)
     {
         view.economyOpen = !view.economyOpen;
     }
+    if (IsKeyPressed(KEY_M))
+    {
+        ToggleMapMode(view, GetScreenToWorld2D(GetMousePosition(), view.camera));
+    }
     if (IsKeyPressed(KEY_F3) && world.stage < 0)   // 샌드박스(봇전투 포함)만
     {
         view.profilerOpen = !view.profilerOpen;
@@ -499,12 +530,13 @@ void UpdateGame(AppState& app, const GameData& data)
 
 void DrawGame(AppState& app, const GameData& data)
 {
-    const GameView& view = app.view;
+    GameView& view = app.view;
     Profiler& profiler = app.world.profiler;
 
+    view.mapView.Refresh(app.world, data);
     BeginMode2D(view.camera);
-    { ProfileScope scope(profiler, ProfileSection::DrawMap); DrawWorldMap(app.world, data, view.camera.zoom); }
-    { ProfileScope scope(profiler, ProfileSection::DrawUnits); DrawWorldUnits(app.world, data, view.camera.zoom, view.selected); }
+    { ProfileScope scope(profiler, ProfileSection::DrawMap); view.mapView.DrawMap(app.world, data, view.mapMode, view.camera.zoom); }
+    { ProfileScope scope(profiler, ProfileSection::DrawUnits); view.mapView.DrawUnits(app.world, data, view.mapMode, view.camera.zoom, view.selected); }
     EndMode2D();
     ProfileScope uiScope(profiler, ProfileSection::DrawUi);
 
