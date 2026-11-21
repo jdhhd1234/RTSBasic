@@ -16,8 +16,11 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <numeric>
+#include <random>
 #include <source_location>
 #include <string>
 
@@ -194,8 +197,9 @@ namespace
         Check(!PolygonContains(square, { 12, 2 }), "point outside polygon");
 
         HexMap map;
+        MapLayers layers;
         std::string error;
-        const bool ok = LoadGeoJsonMap(dataDir + "maps/rhineland.geojson", data, map, error);
+        const bool ok = LoadGeoJsonMap(dataDir + "maps/rhineland.geojson", data, map, layers, error);
         Check(ok, "rhineland.geojson loads");
         if (!ok)
         {
@@ -215,7 +219,153 @@ namespace
                   << " forest=" << counts[ToIndex(Terrain::Forest)] << " river=" << counts[ToIndex(Terrain::River)] << '\n';
 
         HexMap bad;
-        Check(!LoadGeoJsonMap(dataDir + "game_data.lua", data, bad, error), "non-geojson file rejected");
+        Check(!LoadGeoJsonMap(dataDir + "game_data.lua", data, bad, layers, error), "non-geojson file rejected");
+    }
+
+    void TestQgisLayers(const GameData& data)
+    {
+        const auto path = std::filesystem::temp_directory_path() / ("minrts-qgis-" + std::to_string(std::random_device{}()) + ".geojson");
+        {
+            std::ofstream file(path);
+            file << R"({"type":"FeatureCollection","features":[
+                {"type":"Feature","properties":{"terrain":"plain"},"geometry":{"type":"Polygon","coordinates":[[[100000,100000],[300000,100000],[300000,300000],[100000,300000],[100000,100000]]]}},
+                {"type":"Feature","properties":{"layer":"terrain","terrain":"forest","elevation":600},"geometry":{"type":"Polygon","coordinates":[[[205000,226000],[235000,226000],[235000,248000],[205000,248000],[205000,226000]]]}},
+                {"type":"Feature","properties":{"layer":"road","tier":"highway"},"geometry":{"type":"LineString","coordinates":[[120000,274019],[280000,274019]]}},
+                {"type":"Feature","properties":{"layer":"road","tier":null},"geometry":{"type":"MultiLineString","coordinates":[[[160000,274019],[160000,235000]]]}},
+                {"type":"Feature","properties":{"layer":"river"},"geometry":{"type":"LineString","coordinates":[[120000,130000],[280000,130000]]}},
+                {"type":"Feature","properties":{"layer":"city","tier":"metro","name":"Test Metro","population":200000},"geometry":{"type":"Point","coordinates":[140000,274019]}},
+                {"type":"Feature","properties":{"layer":"city","name":"Test Town","population":100000},"geometry":{"type":"Point","coordinates":[260000,200000]}},
+                {"type":"Feature","properties":{"layer":"mine","resource":"oil","reserve":0.3},"geometry":{"type":"Point","coordinates":[140000,274019]}},
+                {"type":"Feature","properties":{"layer":"unit","faction":0,"template":"QGIS infantry"},"geometry":{"type":"Point","coordinates":[140000,274019]}},
+                {"type":"Feature","properties":{"layer":"unit","faction":"blue","template":"missing"},"geometry":{"type":"Point","coordinates":[160000,274019]}},
+                {"type":"Feature","properties":{"layer":"territory","owner":"blue"},"geometry":{"type":"Polygon","coordinates":[[[100000,100000],[180000,100000],[180000,300000],[100000,300000],[100000,100000]]]}},
+                {"type":"Feature","properties":{"layer":"territory","owner":"1"},"geometry":{"type":"MultiPolygon","coordinates":[[[[220000,100000],[300000,100000],[300000,300000],[220000,300000],[220000,100000]]]]}},
+                {"type":"Feature","properties":{"layer":"unknown"},"geometry":{"type":"Point","coordinates":[140000,274019]}},
+                {"type":"Feature","properties":{"layer":"road","tier":"invalid"},"geometry":{"type":"LineString","coordinates":[[120000,274019],[280000,274019]]}},
+                {"type":"Feature","properties":{"layer":"city","name":"Bad population","population":"100000"},"geometry":{"type":"Point","coordinates":[260000,200000]}}
+            ]})";
+            Check(static_cast<bool>(file), "temporary QGIS fixture written");
+        }
+
+        MatchSetup setup;
+        std::string error;
+        const bool loaded = LoadGeoJsonMap(path.string(), data, setup.map, setup.layers, error);
+        std::filesystem::remove(path);
+        Check(loaded, "QGIS fixture loads with optional layers");
+        if (!loaded)
+        {
+            std::cerr << error << '\n';
+            return;
+        }
+
+        const MapLayers& layers = setup.layers;
+        Check(error.find("3 invalid or out-of-bounds items skipped") != std::string::npos, "bad layer and attributes are counted as warnings");
+        Check(layers.roads.size() == 2 && layers.roads[0].tier == RoadTier::Highway && layers.roads[1].tier == RoadTier::Minor,
+              "QGIS road tiers parse including the default");
+        Check(layers.rivers.size() == 1 && std::any_of(setup.map.hexes.begin(), setup.map.hexes.end(), [](const Hex& hex)
+        {
+            return hex.terrain == Terrain::River;
+        }), "QGIS river retains its geometry and paints river terrain");
+        Check(layers.cities.size() == 2 && layers.cities[0].population == 200000 && layers.cities[1].tier == CityTier::Town,
+              "QGIS city population and default tier parse");
+        Check(layers.mines.size() == 1 && layers.mines[0].resource == Resource::Oil && Near(layers.mines[0].reserve, 0.3f), "QGIS mine parses");
+        Check(layers.units.size() == 2 && layers.units[0].faction == PlayerFaction && layers.units[0].templateName == "QGIS infantry", "QGIS units parse");
+        Check(layers.territory.size() == 2 && layers.territory[1].faction == AiFaction, "QGIS territory parses polygons and multipolygons");
+        Check(Near(setup.map.hexes[static_cast<std::size_t>(HexIndex(setup.map, { 5, 3 }))].elevation, 600.0f), "QGIS terrain paints elevation in metres");
+
+        setup.customMap = true;
+        setup.bases = { { PlayerFaction, BaseType::Hq, { 1, 1 } }, { AiFaction, BaseType::Hq, { 8, 8 } } };
+        for (auto& side : setup.sides)
+        {
+            side.templates = { data.defaultTemplates.front() };
+            side.templates.front().name = "QGIS infantry";
+            side.initialDivisions = { 0 };
+        }
+        setup.sides[PlayerFaction].initialDivisions.push_back(0);
+        World world;
+        InitWorld(world, data, setup, 11);
+        const int blueHex = HexIndex(world.map, { 1, 1 });
+        const int overlapHex = HexIndex(world.map, { 2, 1 });
+        Check(world.features.cities.size() == 2 && world.features.cities[0].hex == blueHex
+              && world.features.cities[0].tier == CityTier::Metro && world.features.cities[0].name == "Test Metro", "authored city data reaches world features");
+        Check(world.features.roads.size() == 2 && world.map.hexes[static_cast<std::size_t>(overlapHex)].road == RoadTier::Highway,
+              "authored roads replace generation and overlapping roads keep the fastest tier");
+        Check(world.features.rivers.size() == 1 && world.features.rivers[0].points.size() == 2, "world retains authored river geometry");
+        Check(world.map.hexes[static_cast<std::size_t>(blueHex)].terrain == Terrain::City, "city point paints city terrain");
+        Check(world.map.hexes[static_cast<std::size_t>(HexIndex(world.map, { 2, 4 }))].owner == PlayerFaction
+              && world.map.hexes[static_cast<std::size_t>(HexIndex(world.map, { 7, 6 }))].owner == AiFaction
+              && world.map.hexes[static_cast<std::size_t>(HexIndex(world.map, { 4, 4 }))].owner == -1, "authored territory sets owners and leaves gaps neutral");
+        Check(world.factions[PlayerFaction].spawnedDivisions == 1 && world.factions[AiFaction].spawnedDivisions == 1, "authored units override defaults only for their faction");
+        Check(std::any_of(world.events.begin(), world.events.end(), [](const GameEvent& event)
+        {
+            return event.text == "Unknown unit template: missing";
+        }), "unknown authored unit template emits an event");
+
+        const float manpower = world.factions[PlayerFaction].manpower;
+        UpdateEconomy(world, data, 1.0f);
+        Check(Near(world.factions[PlayerFaction].manpower - manpower, 2.0f * data.config.cityManpowerPer100k), "owned QGIS city generates manpower");
+        Check(world.mines.size() == 1 && Near(world.mines[0].reserve, 0.1f), "connected authored mine uses the configured resource rate");
+        UpdateEconomy(world, data, 1.0f);
+        Check(world.mines.size() == 1 && Near(world.mines[0].reserve, 0.0f) && Near(world.mines[0].rate, 0.0f)
+              && Near(world.factions[PlayerFaction].mineRate[ToIndex(Resource::Oil)], 0.1f), "last mine extraction is capped by its reserve");
+        UpdateEconomy(world, data, 1.0f);
+        Check(Near(world.factions[PlayerFaction].mineRate[ToIndex(Resource::Oil)], 0.0f)
+              && std::count_if(world.events.begin(), world.events.end(), [](const GameEvent& event)
+              {
+                  return event.text == "oil mine exhausted";
+              }) == 1, "an exhausted mine stops permanently and posts one event");
+
+        for (const auto [entity, division, position, faction] : world.registry.view<Division, Position, Faction>().each())
+        {
+            if (faction.id != PlayerFaction)
+            {
+                continue;
+            }
+            const Vec2 start = position.value;
+            Check(Near(Distance(start, layers.units.front().position), 0.0f), "unit spawns at the authored location");
+            world.registry.emplace<MovePath>(entity, MovePath{ { overlapHex } });
+            UpdateMovement(world, data, 0.25f);
+            const float onRoad = Distance(start, position.value);
+            position.value = start;
+            world.map.hexes[static_cast<std::size_t>(blueHex)].road = RoadTier::None;
+            UpdateMovement(world, data, 0.25f);
+            const float offRoad = Distance(start, position.value);
+            Check(offRoad > 0.0f && Near(onRoad, offRoad * data.config.roadSpeedHighway), "highway speeds up unit movement");
+        }
+
+        HexMap routing;
+        routing.cols = 5;
+        routing.rows = 3;
+        routing.hexes.resize(15);
+        const int start = HexIndex(routing, { 0, 1 });
+        const int goal = HexIndex(routing, { 4, 1 });
+        Check(FindPath(routing, data, start, goal).size() == 4, "without roads the short direct path wins");
+        for (int col = 1; col < routing.cols; ++col)
+        {
+            routing.hexes[static_cast<std::size_t>(HexIndex(routing, { col, 0 }))].road = RoadTier::Highway;
+        }
+        const auto pathOnRoad = FindPath(routing, data, start, goal);
+        Check(pathOnRoad.size() == 5 && pathOnRoad.front() == HexIndex(routing, { 1, 0 }), "A* prefers a longer but faster highway path");
+
+        const auto defenderDamage = [&](float elevation)
+        {
+            World combat;
+            combat.map = routing;
+            combat.weather.resize(1);
+            combat.rng.seed(7);
+            combat.map.hexes[static_cast<std::size_t>(HexIndex(combat.map, { 1, 1 }))].elevation = elevation;
+            const TemplateDef& type = data.defaultTemplates.front();
+            SpawnDivision(combat, data, PlayerFaction, type, HexCenter({ 0, 1 }, combat.map.hexDistance));
+            const auto defender = SpawnDivision(combat, data, AiFaction, type, HexCenter({ 1, 1 }, combat.map.hexDistance));
+            UpdateCombat(combat, data, 1.0f);
+            const Division& division = combat.registry.get<Division>(defender);
+            return division.maxHp - division.hp;
+        };
+        const float flatDamage = defenderDamage(0.0f);
+        const float hillDamage = defenderDamage(100.0f);
+        const float cappedDamage = defenderDamage(1500.0f);
+        Check(flatDamage > hillDamage && hillDamage > cappedDamage && Near(cappedDamage, defenderDamage(3000.0f))
+              && Near(flatDamage, defenderDamage(-100.0f)), "only a higher defender receives a capped elevation bonus");
     }
 
     void TestScenarios(const GameData& data, const std::string& dataDir)
@@ -348,6 +498,89 @@ namespace
         std::cout << "full match: " << full.endReason << " at " << full.time << "s, divisions alive "
                   << full.registry.view<Division>().size() << '\n';
     }
+    void TestFrontage(const GameData& data)
+    {
+        GameData controlled = data;
+        controlled.config.frontageDefaultKm = 35.0f;
+        controlled.weather[ToIndex(Weather::Clear)] = WeatherDef{};
+        const TemplateDef infantry{ "Infantry", { BattalionIndex(controlled, "inf") } };
+
+        World world;
+        world.map.cols = 8;
+        world.map.rows = 5;
+        world.map.hexes.resize(40);
+        world.occupancy.resize(world.map.hexes.size());
+        world.baseAtHex.resize(world.map.hexes.size(), entt::null);
+        world.weather.resize(1);
+
+        const Vec2 center = HexCenter({ 3, 2 }, world.map.hexDistance);
+        const Vec2 distantEnemy{ center.x + 50.0f, center.y };
+        const entt::entity player = SpawnDivision(world, controlled, PlayerFaction, infantry, center);
+        const entt::entity enemy = SpawnDivision(world, controlled, AiFaction, infantry, distantEnemy);
+        Division& playerUnit = world.registry.get<Division>(player);
+        Division& enemyUnit = world.registry.get<Division>(enemy);
+        const auto setFrontage = [&](entt::entity entity, int faction, float km)
+        {
+            ApplyCommand(world, controlled, Command{ .type = CommandType::SetFrontage, .entity = entity, .faction = faction, .value = km });
+        };
+        const auto tickDamage = [&]()
+        {
+            for (const auto [entity, unit] : world.registry.view<Division>().each())
+            {
+                unit.hp = unit.maxHp;
+            }
+            UpdateCombat(world, controlled, 0.1f);
+            return playerUnit.maxHp - playerUnit.hp;
+        };
+
+        Check(Near(playerUnit.frontageKm, 35.0f), "division spawns with the configured frontage");
+        setFrontage(player, PlayerFaction, -10.0f);
+        Check(Near(playerUnit.frontageKm, controlled.config.frontageMinKm), "frontage clamps to the minimum");
+        setFrontage(player, PlayerFaction, 1000.0f);
+        Check(Near(playerUnit.frontageKm, controlled.config.frontageMaxKm), "frontage clamps to the maximum");
+        setFrontage(player, AiFaction, 30.0f);
+        Check(Near(playerUnit.frontageKm, controlled.config.frontageMaxKm), "cannot change enemy frontage");
+
+        setFrontage(enemy, AiFaction, 30.0f);
+        setFrontage(player, PlayerFaction, 30.0f);
+        tickDamage();
+        Check(!playerUnit.hasTarget && Near(enemyUnit.hp, enemyUnit.maxHp), "30 km frontage does not engage an enemy 50 km away");
+        setFrontage(player, PlayerFaction, 70.0f);
+        tickDamage();
+        Check(playerUnit.hasTarget && enemyUnit.hp < enemyUnit.maxHp, "70 km frontage engages an enemy 50 km away");
+
+        const int next = HexIndex(world.map, { 3, 3 });
+        world.registry.emplace<MovePath>(player, std::vector<int>{ next });
+        UpdateMovement(world, controlled, 0.1f);
+        Check(Near(Distance(world.registry.get<Position>(player).value, center), 0.0f), "movement stops inside its frontage");
+        setFrontage(player, PlayerFaction, 30.0f);
+        UpdateMovement(world, controlled, 0.1f);
+        Check(Distance(world.registry.get<Position>(player).value, center) > 0.0f, "movement resumes outside its frontage");
+        world.registry.get<Position>(player).value = center;
+
+        world.registry.get<Position>(enemy).value = { center.x + 20.0f, center.y };
+        const float narrowTaken = tickDamage();
+        const float narrowDealt = enemyUnit.maxHp - enemyUnit.hp;
+        setFrontage(player, PlayerFaction, 70.0f);
+        const float wideTaken = tickDamage();
+        const float wideDealt = enemyUnit.maxHp - enemyUnit.hp;
+        Check(narrowDealt > wideDealt && wideDealt > 0.0f, "wider frontage lowers attack");
+        Check(wideTaken > narrowTaken && narrowTaken > 0.0f, "wider frontage increases damage taken");
+
+        world.registry.get<Position>(enemy).value = distantEnemy;
+        const entt::entity secondEnemy = SpawnDivision(world, controlled, AiFaction, infantry, { center.x - 50.0f, center.y });
+        setFrontage(enemy, AiFaction, 70.0f);
+        setFrontage(secondEnemy, AiFaction, 70.0f);
+        world.registry.emplace<Retreating>(secondEnemy);
+        const float firstDamage = tickDamage();
+        world.registry.remove<Retreating>(secondEnemy);
+        world.registry.emplace<Retreating>(enemy);
+        const float secondDamage = tickDamage();
+        world.registry.remove<Retreating>(enemy);
+        Check(firstDamage > 0.0f && secondDamage > 0.0f && Near(tickDamage(), firstDamage + secondDamage),
+              "both attackers damage a 70 km defender in the same tick");
+    }
+
     void TestPhrases(const std::string& dataDir)
     {
         PhraseList phrases = { { "Tank", "전차" }, { "Anti-Tank", "대전차" }, { "at", "AT" }, { "(x)", "(엑스)" }, { "", "빈 키" } };
@@ -362,6 +595,7 @@ namespace
         std::string error;
         Check(LoadStringPairs(dataDir + "lang/ko.lua", korean, error), "ko.lua loads");
         PreparePhrases(korean);
+        Check(ReplacePhrases("Frontage 30 km", korean) == "전선 길이 30 km", "ko frontage label");
         Check(ReplacePhrases("Infantry Div 3 is ready", korean) == "보병사단 3 생산 완료", "ko event line");
         Check(ReplacePhrases("Time up - territory Blue 10 vs Red 20 hexes", korean) == "시간 종료 - 영토 청군 10 대 적군 20 헥스", "ko end reason");
     }
@@ -525,9 +759,11 @@ int main(int argc, char** argv)
     TestRules(data);
     TestTemplates(data);
     TestWorld(data);
+    TestFrontage(data);
 
     const std::string dataDir = path.substr(0, path.find_last_of("/\\") + 1);
     TestGeoJson(data, dataDir);
+    TestQgisLayers(data);
     TestScenarios(data, dataDir);
     TestPhrases(dataDir);
     TestEconomy(data);

@@ -29,6 +29,7 @@ struct Division
     float defenseAvg = 0.0f;
     std::uint32_t effects = 0;     // EffectBit 묶음, 같은 효과는 1회
     float lastCombatTime = -1000.0f;
+    float frontageKm = 30.0f;      // 담당 전선 길이. 적이 이 거리 안에 들면 교전 (GUI에서 조절)
     bool hasTarget = false;        // 이번 틱에 쏜 대상 (교전선 표시용)
     Vec2 targetPosition;
 };

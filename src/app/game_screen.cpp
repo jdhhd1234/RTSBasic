@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <random>
 #include <string>
 
@@ -19,12 +20,24 @@ namespace
     constexpr float TerritoryBarHeight = 6.0f;
     constexpr float BottomPanelHeight = 96.0f;
     constexpr float InfoPanelWidth = 330.0f;
-    constexpr float InfoPanelHeight = 300.0f;
+    constexpr float InfoPanelHeight = 330.0f;
     constexpr float DragThreshold = 5.0f;
+    constexpr float FrontageStepKm = 10.0f;
 
     bool Spectating(const World& world)
     {
         return world.factions[PlayerFaction].aiControlled;
+    }
+
+    void AdjustSelectedFrontage(AppState& app, const GameData& data, float deltaKm)
+    {
+        World& world = app.world;
+        for (const entt::entity entity : app.view.selected)
+        {
+            const Division& division = world.registry.get<Division>(entity);
+            ApplyCommand(world, data, Command{ .type = CommandType::SetFrontage, .entity = entity,
+                .faction = PlayerFaction, .value = division.frontageKm + deltaKm });
+        }
     }
 
     bool MouseOverUi(const AppState& app)
@@ -139,23 +152,6 @@ namespace
         return TextFormat(decimals == 1 ? "%.1f" : "%.2f", value);
     }
 
-    // 전략 ↔ 작전 지도. 작전 지도는 focus(월드 좌표) 주변을 3배 확대하고, 돌아오면 전략 카메라를 복원한다.
-    void ToggleMapMode(GameView& view, Vector2 focus)
-    {
-        if (view.mapMode == MapMode::Strategic)
-        {
-            view.strategicCamera = view.camera;
-            view.camera.target = focus;
-            view.camera.zoom = std::clamp(view.camera.zoom * 3.0f, 0.3f, 8.0f);
-            view.mapMode = MapMode::Operational;
-        }
-        else
-        {
-            view.camera = view.strategicCamera;
-            view.mapMode = MapMode::Strategic;
-        }
-    }
-
     void DrawTopBar(AppState& app)
     {
         const World& world = app.world;
@@ -170,15 +166,6 @@ namespace
             + "    x" + std::to_string(SpeedSteps[static_cast<std::size_t>(app.view.speedIndex)])
             + "    " + blue.name + " " + std::to_string(blue.ownedHexes) + " / " + red.name + " " + std::to_string(red.ownedHexes);
         TextDraw(text.c_str(), 12, 9, 20, RAYWHITE);
-
-        GameView& view = app.view;
-        const bool operational = view.mapMode == MapMode::Operational;
-        const Rectangle button = { static_cast<float>(width) - 230.0f, 4.0f, 220.0f, TopBarHeight - 8.0f };
-        if (UiButton(button, operational ? "Operational map (M)" : "Strategic map (M)", true, operational))
-        {
-            const Vector2 center = { static_cast<float>(GetScreenWidth()) / 2.0f, static_cast<float>(GetScreenHeight()) / 2.0f };
-            ToggleMapMode(view, GetScreenToWorld2D(center, view.camera));
-        }
 
         // 영토 비율 바
         const int total = std::max(1, blue.ownedHexes + red.ownedHexes);
@@ -278,8 +265,8 @@ namespace
 
         DrawSpeedControls(app, top);
         const char* help = Spectating(world)
-            ? "Spectating   LMB inspect   Tab economy   M map   F3 profiler   Space pause   +/- speed   WASD/RMB drag pan   Wheel zoom   Esc menu"
-            : "LMB select (Shift add)   RMB move / drag pan   R retreat   1-6 produce   C conscript   Tab economy   M map   Space pause   +/- speed   Esc menu";
+            ? "Spectating   LMB inspect   Tab economy   F3 profiler   Space pause   +/- speed   WASD/RMB drag pan   Wheel zoom   Esc menu"
+            : "LMB select (Shift add)   RMB move / drag pan   R retreat   [ ] frontage   1-6 produce   C conscript   Tab economy   Wheel zoom   Space pause   +/- speed   Esc menu";
         TextDraw(help, GetScreenWidth() - TextWidth(help, 16) - 12, static_cast<int>(top) + 10, 16, GRAY);
         UiTooltip(tooltip);
     }
@@ -301,7 +288,7 @@ namespace
         }
     }
 
-    void DrawInfoPanel(const AppState& app, const GameData& data)
+    void DrawInfoPanel(AppState& app, const GameData& data)
     {
         const World& world = app.world;
         if (app.view.selected.empty())
@@ -312,31 +299,45 @@ namespace
         const float y = TopBarHeight + 10.0f + TerritoryBarHeight;
         UiPanel({ x, y, InfoPanelWidth, InfoPanelHeight });
 
+        const entt::entity entity = app.view.selected.front();
+        const Division& division = world.registry.get<Division>(entity);
+        TextDraw(std::format("Frontage {:g} km", division.frontageKm).c_str(),
+                 static_cast<int>(x) + 12, static_cast<int>(y) + 48, 18, LIGHTGRAY);
+        if (!Spectating(world))
+        {
+            if (UiButton({ x + 246.0f, y + 44.0f, 32.0f, 26.0f }, "[-]"))
+            {
+                AdjustSelectedFrontage(app, data, -FrontageStepKm);
+            }
+            if (UiButton({ x + 286.0f, y + 44.0f, 32.0f, 26.0f }, "[+]"))
+            {
+                AdjustSelectedFrontage(app, data, FrontageStepKm);
+            }
+        }
+
         if (app.view.selected.size() > 1)
         {
             float hp = 0.0f;
             float maxHp = 0.0f;
-            for (const entt::entity entity : app.view.selected)
+            for (const entt::entity selected : app.view.selected)
             {
-                const Division& division = world.registry.get<Division>(entity);
-                hp += division.hp;
-                maxHp += division.maxHp;
+                const Division& unit = world.registry.get<Division>(selected);
+                hp += unit.hp;
+                maxHp += unit.maxHp;
             }
             TextDraw((std::to_string(app.view.selected.size()) + " divisions selected").c_str(), static_cast<int>(x) + 12, static_cast<int>(y) + 12, 20, RAYWHITE);
             TextDraw(("Total HP " + std::to_string(static_cast<int>(hp)) + " / " + std::to_string(static_cast<int>(maxHp))).c_str(),
-                     static_cast<int>(x) + 12, static_cast<int>(y) + 42, 18, LIGHTGRAY);
+                     static_cast<int>(x) + 12, static_cast<int>(y) + 76, 18, LIGHTGRAY);
             return;
         }
 
-        const entt::entity entity = app.view.selected.front();
-        const Division& division = world.registry.get<Division>(entity);
         const int faction = world.registry.get<Faction>(entity).id;
         const Vec2 position = world.registry.get<Position>(entity).value;
         const float supply = DivisionSupply(world, data, position, faction, division.effects);
 
         float ly = y + 12.0f;
         TextDraw(division.name.c_str(), static_cast<int>(x) + 12, static_cast<int>(ly), 22, faction == PlayerFaction ? RAYWHITE : UiColors::Ai);
-        ly += 32.0f;
+        ly += 64.0f;
         const std::string lines[] = {
             world.factions[static_cast<std::size_t>(faction)].name,
             "HP " + std::to_string(static_cast<int>(division.hp)) + " / " + std::to_string(static_cast<int>(division.maxHp)),
@@ -416,10 +417,6 @@ void UpdateGame(AppState& app, const GameData& data)
     {
         view.economyOpen = !view.economyOpen;
     }
-    if (IsKeyPressed(KEY_M))
-    {
-        ToggleMapMode(view, GetScreenToWorld2D(GetMousePosition(), view.camera));
-    }
     if (IsKeyPressed(KEY_F3) && world.stage < 0)   // 샌드박스(봇전투 포함)만
     {
         view.profilerOpen = !view.profilerOpen;
@@ -454,7 +451,6 @@ void UpdateGame(AppState& app, const GameData& data)
     }
 
     UpdateCameraControls(view, overUi);
-    std::erase_if(view.selected, [&](entt::entity e) { return !world.registry.valid(e); });
 
     if (view.rightDown && IsMouseButtonReleased(MOUSE_BUTTON_RIGHT))
     {
@@ -507,6 +503,17 @@ void UpdateGame(AppState& app, const GameData& data)
             ApplyCommand(world, data, Command{ .type = CommandType::Retreat, .entity = entity, .faction = PlayerFaction });
         }
     }
+    if (!spectating)
+    {
+        if (IsKeyPressed(KEY_LEFT_BRACKET))
+        {
+            AdjustSelectedFrontage(app, data, -FrontageStepKm);
+        }
+        else if (IsKeyPressed(KEY_RIGHT_BRACKET))
+        {
+            AdjustSelectedFrontage(app, data, FrontageStepKm);
+        }
+    }
 
     if (!view.paused)
     {
@@ -522,6 +529,7 @@ void UpdateGame(AppState& app, const GameData& data)
         }
     }
 
+    std::erase_if(view.selected, [&](entt::entity e) { return !world.registry.valid(e); });
     if (world.over)
     {
         FinishMatch(app);
@@ -535,8 +543,8 @@ void DrawGame(AppState& app, const GameData& data)
 
     view.mapView.Refresh(app.world, data);
     BeginMode2D(view.camera);
-    { ProfileScope scope(profiler, ProfileSection::DrawMap); view.mapView.DrawMap(app.world, data, view.mapMode, view.camera.zoom); }
-    { ProfileScope scope(profiler, ProfileSection::DrawUnits); view.mapView.DrawUnits(app.world, data, view.mapMode, view.camera.zoom, view.selected); }
+    { ProfileScope scope(profiler, ProfileSection::DrawMap); view.mapView.DrawMap(app.world, data, view.camera.zoom); }
+    { ProfileScope scope(profiler, ProfileSection::DrawUnits); view.mapView.DrawUnits(app.world, data, view.camera.zoom, view.selected); }
     EndMode2D();
     ProfileScope uiScope(profiler, ProfileSection::DrawUi);
 

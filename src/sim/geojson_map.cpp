@@ -9,7 +9,8 @@
 #include <fstream>
 #include <limits>
 #include <numbers>
-#include <sstream>
+#include <span>
+#include <utility>
 
 using Json = nlohmann::json;
 
@@ -18,6 +19,56 @@ namespace
     constexpr float KmPerDegreeLat = 110.57f;
     constexpr float KmPerDegreeLonAtEquator = 111.32f;
 
+    const Json& Field(const Json& object, const char* name)
+    {
+        static const Json missing;
+        const auto field = object.find(name);
+        return field == object.end() ? missing : *field;
+    }
+
+    std::string StringValue(const Json& value)
+    {
+        return value.is_string() ? value.get<std::string>() : std::string{};
+    }
+
+    bool ReadOptionalNumber(const Json& value, float& out)
+    {
+        if (value.is_null())
+        {
+            return true;
+        }
+        if (!value.is_number())
+        {
+            return false;
+        }
+        out = value.get<float>();
+        return std::isfinite(out);
+    }
+
+    int NamedValue(const Json& value, std::span<const char* const> names, int defaultIndex = -1)
+    {
+        if (value.is_null())
+        {
+            return defaultIndex;
+        }
+        const std::string name = StringValue(value);
+        const auto match = std::find(names.begin(), names.end(), name);
+        return match == names.end() ? -1 : static_cast<int>(match - names.begin());
+    }
+
+    int FactionValue(const Json& value)
+    {
+        if (value == 0 || value == "0" || value == "blue")
+        {
+            return 0;
+        }
+        if (value == 1 || value == "1" || value == "red")
+        {
+            return 1;
+        }
+        return -1;
+    }
+
     bool ReadPoint(const Json& j, Vec2& out)
     {
         if (!j.is_array() || j.size() < 2 || !j[0].is_number() || !j[1].is_number())
@@ -25,7 +76,7 @@ namespace
             return false;
         }
         out = { j[0].get<float>(), j[1].get<float>() };
-        return true;
+        return std::isfinite(out.x) && std::isfinite(out.y);
     }
 
     std::vector<Vec2> ReadLine(const Json& j)
@@ -38,88 +89,85 @@ namespace
         for (const Json& p : j)
         {
             Vec2 point;
-            if (ReadPoint(p, point))
+            if (!ReadPoint(p, point))
             {
-                line.push_back(point);
+                return {};
             }
+            line.push_back(point);
         }
         return line;
     }
 
-    void AddPolygon(const Json& coordinates, Terrain terrain, std::vector<GeoShape>& shapes)
+    bool AddPolygon(const Json& coordinates, std::vector<GeoShape>& shapes)
     {
-        GeoShape shape{ terrain, 2, {} };
-        if (coordinates.is_array())
+        if (!coordinates.is_array() || coordinates.empty())
         {
-            for (const Json& ring : coordinates)
+            return false;
+        }
+        GeoShape shape;
+        for (const Json& ring : coordinates)
+        {
+            auto points = ReadLine(ring);
+            if (points.size() < 3)
             {
-                shape.rings.push_back(ReadLine(ring));
+                return false;
             }
+            shape.rings.push_back(std::move(points));
         }
-        if (!shape.rings.empty() && shape.rings.front().size() >= 3)
-        {
-            shapes.push_back(std::move(shape));
-        }
+        shapes.push_back(std::move(shape));
+        return true;
     }
 
-    void AddGeometry(const Json& geometry, Terrain terrain, std::vector<GeoShape>& shapes)
+    bool AddPoint(const Json& coordinates, std::vector<GeoShape>& shapes)
     {
-        if (!geometry.is_object())
+        Vec2 point;
+        if (!ReadPoint(coordinates, point))
         {
-            return;
+            return false;
         }
-        const std::string type = geometry.value("type", "");
-        const Json empty = Json::array();
-        const Json& coordinates = geometry.contains("coordinates") ? geometry["coordinates"] : empty;
+        shapes.push_back({ Terrain::Plain, 0, { { point } } });
+        return true;
+    }
 
+    bool AddLine(const Json& coordinates, std::vector<GeoShape>& shapes)
+    {
+        auto points = ReadLine(coordinates);
+        if (points.size() < 2)
+        {
+            return false;
+        }
+        shapes.push_back({ Terrain::Plain, 1, { std::move(points) } });
+        return true;
+    }
+
+    bool AddGeometry(const Json& geometry, std::vector<GeoShape>& shapes)
+    {
+        const std::string type = StringValue(Field(geometry, "type"));
+        const Json& coordinates = Field(geometry, "coordinates");
         if (type == "Polygon")
         {
-            AddPolygon(coordinates, terrain, shapes);
+            return AddPolygon(coordinates, shapes);
         }
-        else if (type == "MultiPolygon" && coordinates.is_array())
+        if (type == "LineString")
         {
-            for (const Json& polygon : coordinates)
+            return AddLine(coordinates, shapes);
+        }
+        if (type == "Point")
+        {
+            return AddPoint(coordinates, shapes);
+        }
+        if (type == "GeometryCollection")
+        {
+            const Json& geometries = Field(geometry, "geometries");
+            return geometries.is_array() && !geometries.empty() && std::all_of(geometries.begin(), geometries.end(), [&](const Json& child)
             {
-                AddPolygon(polygon, terrain, shapes);
-            }
+                return AddGeometry(child, shapes);
+            });
         }
-        else if (type == "LineString")
-        {
-            shapes.push_back({ terrain, 1, { ReadLine(coordinates) } });
-        }
-        else if (type == "MultiLineString" && coordinates.is_array())
-        {
-            for (const Json& line : coordinates)
-            {
-                shapes.push_back({ terrain, 1, { ReadLine(line) } });
-            }
-        }
-        else if (type == "Point")
-        {
-            Vec2 point;
-            if (ReadPoint(coordinates, point))
-            {
-                shapes.push_back({ terrain, 0, { { point } } });
-            }
-        }
-        else if (type == "MultiPoint" && coordinates.is_array())
-        {
-            for (const Json& p : coordinates)
-            {
-                Vec2 point;
-                if (ReadPoint(p, point))
-                {
-                    shapes.push_back({ terrain, 0, { { point } } });
-                }
-            }
-        }
-        else if (type == "GeometryCollection" && geometry.contains("geometries") && geometry["geometries"].is_array())
-        {
-            for (const Json& child : geometry["geometries"])
-            {
-                AddGeometry(child, terrain, shapes);
-            }
-        }
+        const auto addPart = type == "MultiPolygon" ? AddPolygon : type == "MultiLineString" ? AddLine :
+                             type == "MultiPoint" ? AddPoint : nullptr;
+        return addPart != nullptr && coordinates.is_array() && !coordinates.empty()
+            && std::all_of(coordinates.begin(), coordinates.end(), [&](const Json& part) { return addPart(part, shapes); });
     }
 
     int TerrainFromName(std::string name)
@@ -128,9 +176,125 @@ namespace
         return FindName(TerrainNames, name);
     }
 
-    void Paint(HexMap& map, int index, Terrain terrain)
+    bool ReadFeature(const Json& feature, std::vector<GeoShape>& terrainShapes, MapLayers& layers)
     {
-        map.hexes[static_cast<std::size_t>(index)].terrain = terrain;
+        const Json& properties = Field(feature, "properties");
+        const Json& layerField = Field(properties, "layer");
+        const std::string layer = layerField.is_null() ? "terrain" : StringValue(layerField);
+        std::vector<GeoShape> shapes;
+        if (!properties.is_object() || !AddGeometry(Field(feature, "geometry"), shapes))
+        {
+            return false;
+        }
+        if (layer == "terrain")
+        {
+            const int terrain = TerrainFromName(StringValue(Field(properties, "terrain")));
+            const Json& height = Field(properties, "elevation");
+            float elevation = 0.0f;
+            if (terrain < 0 || !ReadOptionalNumber(height, elevation))
+            {
+                return false;
+            }
+            for (GeoShape& shape : shapes)
+            {
+                shape.terrain = static_cast<Terrain>(terrain);
+                if (!height.is_null())
+                {
+                    shape.elevation = elevation;
+                }
+                terrainShapes.push_back(std::move(shape));
+            }
+            return true;
+        }
+
+        const int dimension = layer == "territory" ? 2 : (layer == "road" || layer == "river") ? 1 : 0;
+        if (std::any_of(shapes.begin(), shapes.end(), [&](const GeoShape& shape) { return shape.dimension != dimension; }))
+        {
+            return false;
+        }
+        if (layer == "road")
+        {
+            const int tier = NamedValue(Field(properties, "tier"), RoadTierNames, static_cast<int>(RoadTier::Minor));
+            if (tier < 0)
+            {
+                return false;
+            }
+            for (GeoShape& shape : shapes)
+            {
+                layers.roads.push_back({ std::move(shape.rings.front()), static_cast<RoadTier>(tier) });
+            }
+        }
+        else if (layer == "river")
+        {
+            for (GeoShape& shape : shapes)
+            {
+                layers.rivers.push_back(std::move(shape.rings.front()));
+            }
+        }
+        else if (layer == "city")
+        {
+            const std::string name = StringValue(Field(properties, "name"));
+            const int tier = NamedValue(Field(properties, "tier"), CityTierNames, static_cast<int>(CityTier::Town));
+            const Json& population = Field(properties, "population");
+            if (name.empty() || tier < 0 || !population.is_number_integer() || population < 0 || population > std::numeric_limits<int>::max())
+            {
+                return false;
+            }
+            for (const GeoShape& shape : shapes)
+            {
+                layers.cities.push_back({ shape.rings.front().front(), name, static_cast<CityTier>(tier), population.get<int>() });
+            }
+        }
+        else if (layer == "mine")
+        {
+            const int resource = NamedValue(Field(properties, "resource"), ResourceNames);
+            float reserve = -1.0f;
+            if (resource < 0 || !ReadOptionalNumber(Field(properties, "reserve"), reserve))
+            {
+                return false;
+            }
+            for (const GeoShape& shape : shapes)
+            {
+                layers.mines.push_back({ shape.rings.front().front(), static_cast<Resource>(resource), reserve });
+            }
+        }
+        else if (layer == "unit")
+        {
+            const int faction = FactionValue(Field(properties, "faction"));
+            const std::string name = StringValue(Field(properties, "template"));
+            if (faction < 0 || name.empty())
+            {
+                return false;
+            }
+            for (const GeoShape& shape : shapes)
+            {
+                layers.units.push_back({ shape.rings.front().front(), faction, name });
+            }
+        }
+        else if (layer == "territory")
+        {
+            const int faction = FactionValue(Field(properties, "owner"));
+            if (faction < 0)
+            {
+                return false;
+            }
+            for (GeoShape& shape : shapes)
+            {
+                layers.territory.push_back({ faction, std::move(shape.rings) });
+            }
+        }
+        else
+        {
+            return false;
+        }
+        return true;
+    }
+
+    void Paint(HexMap& map, int index, const GeoShape& shape)
+    {
+        Hex& hex = map.hexes[static_cast<std::size_t>(index)];
+        hex.terrain = shape.terrain;
+        hex.elevation = shape.elevation.value_or(hex.elevation);
     }
 }
 
@@ -165,7 +329,7 @@ bool PolygonContains(const std::vector<std::vector<Vec2>>& rings, Vec2 point)
     return true;
 }
 
-bool LoadGeoJsonMap(const std::string& path, const GameData& data, HexMap& out, std::string& error)
+bool LoadGeoJsonMap(const std::string& path, const GameData& data, HexMap& out, MapLayers& outLayers, std::string& error)
 {
     std::ifstream file(path, std::ios::binary);
     if (!file)
@@ -173,46 +337,38 @@ bool LoadGeoJsonMap(const std::string& path, const GameData& data, HexMap& out, 
         error = "cannot open " + path;
         return false;
     }
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-
-    const Json root = Json::parse(buffer.str(), nullptr, false);
-    if (root.is_discarded() || !root.is_object() || root.value("type", "") != "FeatureCollection" || !root.contains("features") || !root["features"].is_array())
+    const Json root = Json::parse(file, nullptr, false);
+    const Json& features = Field(root, "features");
+    if (Field(root, "type") != "FeatureCollection" || !features.is_array())
     {
         error = path + ": not a GeoJSON FeatureCollection";
         return false;
     }
 
     Terrain defaultTerrain = Terrain::Plain;
-    if (root.contains("minrts_default_terrain") && root["minrts_default_terrain"].is_string())
+    int skipped = 0;
+    const Json& fallback = Field(root, "minrts_default_terrain");
+    if (!fallback.is_null())
     {
-        const int index = TerrainFromName(root["minrts_default_terrain"].get<std::string>());
+        const int index = TerrainFromName(StringValue(fallback));
         if (index < 0)
         {
-            error = path + ": unknown minrts_default_terrain";
-            return false;
+            ++skipped;
         }
-        defaultTerrain = static_cast<Terrain>(index);
+        else
+        {
+            defaultTerrain = static_cast<Terrain>(index);
+        }
     }
 
     std::vector<GeoShape> shapes;
-    int skipped = 0;
-    for (const Json& feature : root["features"])
+    MapLayers layers;
+    for (const Json& feature : features)
     {
-        if (!feature.is_object() || !feature.contains("properties") || !feature["properties"].is_object())
+        if (!ReadFeature(feature, shapes, layers))
         {
             ++skipped;
-            continue;
         }
-        const Json& properties = feature["properties"];
-        const int terrain = properties.contains("terrain") && properties["terrain"].is_string()
-            ? TerrainFromName(properties["terrain"].get<std::string>()) : -1;
-        if (terrain < 0 || !feature.contains("geometry"))
-        {
-            ++skipped;
-            continue;
-        }
-        AddGeometry(feature["geometry"], static_cast<Terrain>(terrain), shapes);
     }
     if (shapes.empty())
     {
@@ -238,21 +394,11 @@ bool LoadGeoJsonMap(const std::string& path, const GameData& data, HexMap& out, 
             }
         }
     }
+    // shortcut: 좌표 범위로 CRS를 추정한다. 좌표계 지원을 늘릴 때 CRS 선언도 읽는다.
     const bool geographic = minX >= -180.0f && maxX <= 180.0f && minY >= -90.0f && maxY <= 90.0f;
     const float midLat = (minY + maxY) * 0.5f * std::numbers::pi_v<float> / 180.0f;
     const float kx = geographic ? KmPerDegreeLonAtEquator * std::cos(midLat) : 0.001f;
     const float ky = geographic ? KmPerDegreeLat : 0.001f;
-
-    for (GeoShape& shape : shapes)
-    {
-        for (auto& ring : shape.rings)
-        {
-            for (Vec2& p : ring)
-            {
-                p = { (p.x - minX) * kx, (maxY - p.y) * ky };   // 북쪽이 위
-            }
-        }
-    }
 
     const GameConfig& c = data.config;
     const float d = c.hexDistanceKm;
@@ -265,17 +411,43 @@ bool LoadGeoJsonMap(const std::string& path, const GameData& data, HexMap& out, 
         return false;
     }
 
-    out.hexDistance = d;
-    out.cols = std::clamp(static_cast<int>(std::lround(widthKm / d)), 8, static_cast<int>(c.mapMaxKm / d));
-    out.rows = std::clamp(static_cast<int>(std::lround(heightKm / rowStep)), 8, static_cast<int>(c.mapMaxKm / rowStep));
-    out.hexes.assign(static_cast<std::size_t>(out.cols * out.rows), Hex{ defaultTerrain, -1, 0 });
+    HexMap map;
+    map.hexDistance = d;
+    map.cols = std::clamp(static_cast<int>(std::lround(widthKm / d)), 8, static_cast<int>(c.mapMaxKm / d));
+    map.rows = std::clamp(static_cast<int>(std::lround(heightKm / rowStep)), 8, static_cast<int>(c.mapMaxKm / rowStep));
+    map.hexes.assign(static_cast<std::size_t>(map.cols * map.rows), Hex{ defaultTerrain });
 
-    // 헥스 중심(0부터 시작)을 GeoJSON km 좌표계로 옮기는 보정
-    const Vec2 offset = { d * 0.5f, rowStep * 0.5f };
-    const auto hexOf = [&](Vec2 p) { return WorldToHex({ p.x - offset.x, p.y - offset.y }, d); };
-
-    for (const GeoShape& shape : shapes)
+    // 북쪽이 위로 오도록 뒤집고 첫 헥스 중심을 원점으로 옮긴다.
+    const auto project = [&](Vec2 p)
     {
+        return Vec2{ (p.x - minX) * kx - d * 0.5f, (maxY - p.y) * ky - rowStep * 0.5f };
+    };
+    const auto projectLine = [&](std::vector<Vec2>& line)
+    {
+        for (Vec2& point : line)
+        {
+            point = project(point);
+        }
+    };
+    const auto hexOf = [&](Vec2 point)
+    {
+        if (point.x >= -d && point.x <= MapWidthKm(map) && point.y >= -d && point.y <= MapHeightKm(map))
+        {
+            const HexCoord coord = WorldToHex(point, d);
+            if (InBounds(map, coord))
+            {
+                return HexIndex(map, coord);
+            }
+        }
+        return -1;
+    };
+
+    for (GeoShape& shape : shapes)
+    {
+        for (auto& ring : shape.rings)
+        {
+            projectLine(ring);
+        }
         if (shape.dimension == 2)
         {
             float bx0 = std::numeric_limits<float>::max();
@@ -289,43 +461,65 @@ bool LoadGeoJsonMap(const std::string& path, const GameData& data, HexMap& out, 
                 bx1 = std::max(bx1, p.x);
                 by1 = std::max(by1, p.y);
             }
-            for (int i = 0; i < static_cast<int>(out.hexes.size()); ++i)
+            for (int i = 0; i < static_cast<int>(map.hexes.size()); ++i)
             {
-                const Vec2 center = HexCenter(IndexToHex(out, i), d);
-                const Vec2 sample = { center.x + offset.x, center.y + offset.y };
-                if (sample.x >= bx0 && sample.x <= bx1 && sample.y >= by0 && sample.y <= by1 && PolygonContains(shape.rings, sample))
+                const Vec2 center = HexCenter(IndexToHex(map, i), d);
+                if (center.x >= bx0 && center.x <= bx1 && center.y >= by0 && center.y <= by1 && PolygonContains(shape.rings, center))
                 {
-                    Paint(out, i, shape.terrain);
+                    Paint(map, i, shape);
                 }
             }
         }
         else if (shape.dimension == 1)
         {
-            const std::vector<Vec2>& line = shape.rings.front();
-            for (std::size_t s = 1; s < line.size(); ++s)
+            for (const int index : HexesAlongLine(map, shape.rings.front()))
             {
-                const Vec2 a = line[s - 1];
-                const Vec2 b = line[s];
-                const int steps = std::max(1, static_cast<int>(std::ceil(Distance(a, b) / (d * 0.25f))));
-                for (int k = 0; k <= steps; ++k)
-                {
-                    const float t = static_cast<float>(k) / static_cast<float>(steps);
-                    const HexCoord coord = hexOf({ a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t });
-                    if (InBounds(out, coord))
-                    {
-                        Paint(out, HexIndex(out, coord), shape.terrain);
-                    }
-                }
+                Paint(map, index, shape);
             }
         }
-        else if (!shape.rings.front().empty())
+        else if (const int index = hexOf(shape.rings.front().front()); index >= 0)
         {
-            const HexCoord coord = hexOf(shape.rings.front().front());
-            if (InBounds(out, coord))
-            {
-                Paint(out, HexIndex(out, coord), shape.terrain);
-            }
+            Paint(map, index, shape);
         }
     }
+
+    for (GeoRoad& road : layers.roads)
+    {
+        projectLine(road.points);
+    }
+    for (auto& river : layers.rivers)
+    {
+        projectLine(river);
+        for (const int index : HexesAlongLine(map, river))
+        {
+            map.hexes[static_cast<std::size_t>(index)].terrain = Terrain::River;
+        }
+    }
+    for (GeoTerritory& territory : layers.territory)
+    {
+        for (auto& ring : territory.rings)
+        {
+            projectLine(ring);
+        }
+    }
+    const auto projectPointLayer = [&](auto& points)
+    {
+        for (auto& item : points)
+        {
+            item.position = project(item.position);
+        }
+        skipped += static_cast<int>(std::erase_if(points, [&](const auto& item) { return hexOf(item.position) < 0; }));
+    };
+    projectPointLayer(layers.cities);
+    projectPointLayer(layers.mines);
+    projectPointLayer(layers.units);
+    for (const GeoCity& city : layers.cities)
+    {
+        map.hexes[static_cast<std::size_t>(hexOf(city.position))].terrain = Terrain::City;
+    }
+
+    out = std::move(map);
+    outLayers = std::move(layers);
+    error = skipped > 0 ? path + ": " + std::to_string(skipped) + " invalid or out-of-bounds items skipped" : std::string{};
     return true;
 }

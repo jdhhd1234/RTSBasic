@@ -2,6 +2,7 @@
 #include "sim/economy.hpp"
 #include "ai/ai.hpp"
 #include "sim/components.hpp"
+#include "sim/geojson_map.hpp"
 #include "sim/rules.hpp"
 #include "sim/systems.hpp"
 #include "core/templates.hpp"
@@ -127,6 +128,85 @@ namespace
         }
     }
 
+    void AssignAuthoredTerritory(World& world, const GameData& data, const std::vector<GeoTerritory>& territory)
+    {
+        for (int i = 0; i < static_cast<int>(world.map.hexes.size()); ++i)
+        {
+            const auto index = static_cast<std::size_t>(i);
+            Hex& hex = world.map.hexes[index];
+            hex.owner = -1;
+            if (const entt::entity base = world.baseAtHex[index]; base != entt::null)
+            {
+                hex.owner = world.registry.get<Faction>(base).id;
+            }
+            else if (IsPassable(world.map, data, i))
+            {
+                const Vec2 center = HexCenter(IndexToHex(world.map, i), world.map.hexDistance);
+                const auto area = std::find_if(territory.rbegin(), territory.rend(), [&](const GeoTerritory& item)
+                {
+                    return PolygonContains(item.rings, center);
+                });
+                if (area != territory.rend())
+                {
+                    hex.owner = area->faction;
+                }
+            }
+            if (hex.owner >= 0)
+            {
+                ++world.factions[static_cast<std::size_t>(hex.owner)].ownedHexes;
+            }
+        }
+    }
+
+    void PlaceAuthoredMines(World& world, const GameData& data, const std::vector<GeoMine>& mines)
+    {
+        world.mines.clear();
+        for (const GeoMine& mine : mines)
+        {
+            const HexCoord coord = WorldToHex(mine.position, world.map.hexDistance);
+            const auto rule = std::find_if(data.mineRules.begin(), data.mineRules.end(), [&](const MineRuleDef& item)
+            {
+                return item.resource == mine.resource;
+            });
+            if (InBounds(world.map, coord) && rule != data.mineRules.end())
+            {
+                world.mines.push_back({ .hex = HexIndex(world.map, coord), .resource = mine.resource,
+                                        .rate = rule->rate, .reserve = mine.reserve });
+            }
+        }
+    }
+
+    bool SpawnAuthoredDivisions(World& world, const GameData& data, const std::vector<GeoUnit>& units, int faction)
+    {
+        bool authored = false;
+        const auto& templates = world.factions[static_cast<std::size_t>(faction)].templates;
+        for (const GeoUnit& unit : units)
+        {
+            if (unit.faction != faction)
+            {
+                continue;
+            }
+            authored = true;
+            const auto type = std::find_if(templates.begin(), templates.end(), [&](const TemplateDef& item)
+            {
+                return item.name == unit.templateName;
+            });
+            if (type == templates.end())
+            {
+                PushEvent(world, "Unknown unit template: " + unit.templateName, EventKind::Info);
+                continue;
+            }
+            const HexCoord coord = WorldToHex(unit.position, world.map.hexDistance);
+            if (!InBounds(world.map, coord) || !IsPassable(world.map, data, HexIndex(world.map, coord)))
+            {
+                PushEvent(world, "Invalid unit position: " + unit.templateName, EventKind::Info);
+                continue;
+            }
+            SpawnDivision(world, data, faction, *type, unit.position);
+        }
+        return authored;
+    }
+
     // 초기 사단 배치 위치: 사단기지 → 군단기지 → 본부 순으로 돌아가며.
     std::vector<Vec2> SpawnPoints(const World& world, int faction)
     {
@@ -198,6 +278,7 @@ void SetGeneratedMapSize(MatchSetup& setup, const GameConfig& config, float widt
     widthKm = std::clamp(widthKm, config.mapMinKm, config.mapMaxKm);
     heightKm = std::clamp(heightKm, config.mapMinKm, config.mapMaxKm);
     setup.customMap = false;
+    setup.layers = {};
     setup.mapCols = std::max(8, static_cast<int>(std::lround(widthKm / config.hexDistanceKm)));
     setup.mapRows = std::max(8, static_cast<int>(std::lround(heightKm / (config.hexDistanceKm * std::numbers::sqrt3_v<float> / 2.0f))));
 }
@@ -205,6 +286,8 @@ void SetGeneratedMapSize(MatchSetup& setup, const GameConfig& config, float widt
 void InitWorld(World& world, const GameData& data, const MatchSetup& setup, std::uint32_t seed)
 {
     const GameConfig& c = data.config;
+    const MapLayers emptyLayers;
+    const MapLayers& layers = setup.customMap ? setup.layers : emptyLayers;
     world.registry.clear();
     world.rng.seed(seed);
     world.title = setup.title;
@@ -224,6 +307,7 @@ void InitWorld(World& world, const GameData& data, const MatchSetup& setup, std:
     }
     else
     {
+        // 캠페인·무작위 맵만 절차 생성하고, 제작 지도는 QGIS 레이어를 불러온다.
         GenerateMap(world.map, data, setup.mapCols, setup.mapRows, static_cast<std::uint32_t>(setup.mapSeed));
     }
     const std::size_t hexCount = world.map.hexes.size();
@@ -261,9 +345,23 @@ void InitWorld(World& world, const GameData& data, const MatchSetup& setup, std:
     {
         baseHexes.push_back(base.hex);
     }
-    BuildMapFeatures(world.map, data, baseHexes, world.features);
-    AssignInitialTerritory(world, data);
-    PlaceMines(world, data);
+    BuildMapFeatures(world.map, data, baseHexes, layers, world.features);
+    if (layers.territory.empty())
+    {
+        AssignInitialTerritory(world, data);
+    }
+    else
+    {
+        AssignAuthoredTerritory(world, data, layers.territory);
+    }
+    if (layers.mines.empty())
+    {
+        PlaceMines(world, data);
+    }
+    else
+    {
+        PlaceAuthoredMines(world, data, layers.mines);
+    }
     for (int f = 0; f < FactionCount; ++f)
     {
         SetupFactionEconomy(world, data, f);
@@ -272,6 +370,10 @@ void InitWorld(World& world, const GameData& data, const MatchSetup& setup, std:
     for (int f = 0; f < FactionCount; ++f)
     {
         const SideSetup& side = setup.sides[static_cast<std::size_t>(f)];
+        if (SpawnAuthoredDivisions(world, data, layers.units, f))
+        {
+            continue;
+        }
         const std::vector<Vec2> points = SpawnPoints(world, f);
         if (points.empty())
         {
@@ -289,13 +391,17 @@ void InitWorld(World& world, const GameData& data, const MatchSetup& setup, std:
     }
 
     RebuildOccupancy(world);
-    UpdateTerritory(world, data);
+    if (layers.territory.empty())
+    {
+        UpdateTerritory(world, data);
+    }
 }
 
 entt::entity SpawnDivision(World& world, const GameData& data, int faction, const TemplateDef& templ, Vec2 position)
 {
     Division division;
     division.battalions = templ.battalions;
+    division.frontageKm = data.config.frontageDefaultKm;
     division.speed = std::numeric_limits<float>::max();
 
     float defenseSum = 0.0f;
@@ -342,7 +448,7 @@ void ApplyCommand(World& world, const GameData& data, const Command& command)
 
     const auto ownsDivision = [&]()
     {
-        return world.registry.valid(command.entity) && world.registry.all_of<Division>(command.entity)
+        return world.registry.valid(command.entity) && world.registry.all_of<Division, Faction>(command.entity)
             && world.registry.get<Faction>(command.entity).id == command.faction;
     };
 
@@ -368,6 +474,13 @@ void ApplyCommand(World& world, const GameData& data, const Command& command)
         if (ownsDivision())
         {
             StartRetreat(world, data, command.entity);
+        }
+        break;
+    case CommandType::SetFrontage:
+        if (ownsDivision() && !std::isnan(command.value))
+        {
+            world.registry.get<Division>(command.entity).frontageKm =
+                std::clamp(command.value, data.config.frontageMinKm, data.config.frontageMaxKm);
         }
         break;
     case CommandType::Produce:

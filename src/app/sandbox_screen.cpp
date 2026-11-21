@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <iostream>
 #include <random>
 #include <string>
 
@@ -57,10 +58,14 @@ namespace
         else if (sb.mapChoice >= 2)
         {
             std::string error;
-            if (!LoadGeoJsonMap(sb.mapFiles[static_cast<std::size_t>(sb.mapChoice - 2)], sb.scenario.data, setup.map, error))
+            if (!LoadGeoJsonMap(sb.mapFiles[static_cast<std::size_t>(sb.mapChoice - 2)], sb.scenario.data, setup.map, setup.layers, error))
             {
                 sb.error = error;
                 return false;
+            }
+            if (!error.empty())
+            {
+                std::clog << error << '\n';
             }
             setup.customMap = true;
             setup.bases.clear();

@@ -1,6 +1,7 @@
 #include "sim/rules.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 float SupplyFactor(float distanceKm, bool transport, const GameConfig& config)
 {
@@ -76,4 +77,9 @@ float HpFactor(float hp, float maxHp, const GameConfig& config)
     }
     const float ratio = std::clamp(hp / maxHp, 0.0f, 1.0f);
     return config.hpFactorMin + (1.0f - config.hpFactorMin) * ratio;
+}
+
+float FrontageSpread(float frontageKm, const GameConfig& config)
+{
+    return std::sqrt(frontageKm / config.frontageReferenceKm);
 }

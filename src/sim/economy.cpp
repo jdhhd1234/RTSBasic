@@ -111,19 +111,43 @@ namespace
         state.mineRate.fill(0.0f);
         for (Mine& mine : world.mines)
         {
-            if (world.map.hexes[static_cast<std::size_t>(mine.hex)].owner != f)
+            const int owner = world.map.hexes[static_cast<std::size_t>(mine.hex)].owner;
+            if (owner < 0)
+            {
+                mine.connected = false;
+            }
+            if (owner != f)
             {
                 continue;
             }
             mine.connected = reach[static_cast<std::size_t>(mine.hex)] != 0;
             if (mine.connected)
             {
-                state.mineRate[ToIndex(mine.resource)] += mine.rate * state.incomeMultiplier;
+                float yield = std::max(0.0f, mine.rate * state.incomeMultiplier);
+                if (mine.reserve > 0.0f)
+                {
+                    yield = std::min(yield, mine.reserve);
+                    mine.reserve -= yield;
+                    if (mine.reserve == 0.0f)
+                    {
+                        mine.rate = 0.0f;
+                        PushEvent(world, std::string(ResourceNames[ToIndex(mine.resource)]) + " mine exhausted", EventKind::Info);
+                    }
+                }
+                state.mineRate[ToIndex(mine.resource)] += yield;
             }
         }
         for (std::size_t r = 0; r < ResourceCount; ++r)
         {
             state.stock[r] += state.mineRate[r];
+        }
+
+        for (const MapCity& city : world.features.cities)
+        {
+            if (world.map.hexes[static_cast<std::size_t>(city.hex)].owner == f)
+            {
+                state.manpower += c.cityManpowerPer100k * (static_cast<float>(city.population) / 100000.0f);
+            }
         }
 
         // 공장: 건설 진행, 군수품 생산

@@ -14,9 +14,14 @@ namespace
     // 인접 헥스 중심 거리는 정확히 20km라서 부동소수 오차를 흡수한다.
     constexpr float RangeTolerance = 0.5f;
     
-    float TargetDefense(const World& world, const GameData& data, const CombatTarget& target)
+    float TargetDefense(const World& world, const GameData& data, const CombatTarget& target, int attackerHex)
     {
-        const float terrain = data.terrain[ToIndex(world.map.hexes[static_cast<std::size_t>(target.hex)].terrain)].defense;
+        const Hex& defender = world.map.hexes[static_cast<std::size_t>(target.hex)];
+        const Hex& attacker = world.map.hexes[static_cast<std::size_t>(attackerHex)];
+        const GameConfig& config = data.config;
+        const float bonus = std::clamp((defender.elevation - attacker.elevation) * 0.01f * config.elevationDefensePer100m,
+                                       0.0f, config.elevationDefenseMax);
+        const float terrain = data.terrain[ToIndex(defender.terrain)].defense * (1.0f + bonus);
         if (target.isBase)
         {
             const Base& base = world.registry.get<Base>(target.entity);
@@ -92,6 +97,7 @@ void UpdateCombat(World& world, const GameData& data, float dt)
             * DivisionSupply(world, data, position.value, faction.id, division.effects)
             * WeatherMultiplier(weather.attack, division.effects)
             * HpFactor(division.hp, division.maxHp, c)
+            * std::clamp(1.0f / FrontageSpread(division.frontageKm, c), 0.6f, 1.3f)
             * (1.0f + variance(world.rng));
             
         if (HasEffect(division.effects, Effect::Recon))
@@ -114,7 +120,7 @@ void UpdateCombat(World& world, const GameData& data, float dt)
             {
                 continue;
             }
-            const float range = std::max(c.engageKm, def.range * WeatherMultiplier(weather.range, division.effects));
+            const float range = std::max(division.frontageKm, def.range * WeatherMultiplier(weather.range, division.effects));
             const CombatTarget* target = NearestEnemy(targets, faction.id, position.value, range, false);
             if (target == nullptr)
             {
@@ -136,7 +142,7 @@ void UpdateCombat(World& world, const GameData& data, float dt)
                 }
             }
 
-            damage[target->entity] += def.attack * mult * c.damageScale * DefenseScale(c, TargetDefense(world, data, *target)) * dt;
+            damage[target->entity] += def.attack * mult * c.damageScale * DefenseScale(c, TargetDefense(world, data, *target, hex)) * dt;
             attackerFaction[target->entity] = faction.id;
             division.lastCombatTime = world.time;
             if (!division.hasTarget)
@@ -156,7 +162,7 @@ void UpdateCombat(World& world, const GameData& data, float dt)
             continue;
         }
         const float attack = data.bases[ToIndex(base.type)].attack;
-        damage[target->entity] += attack * c.damageScale * DefenseScale(c, TargetDefense(world, data, *target)) * dt;
+        damage[target->entity] += attack * c.damageScale * DefenseScale(c, TargetDefense(world, data, *target, base.hex)) * dt;
         attackerFaction[target->entity] = faction.id;
     }
 
@@ -166,7 +172,7 @@ void UpdateCombat(World& world, const GameData& data, float dt)
     {
         if (Division* division = world.registry.try_get<Division>(entity))
         {
-            division->hp -= amount;
+            division->hp -= amount * std::clamp(FrontageSpread(division->frontageKm, c), 0.75f, 1.6f);
             division->lastCombatTime = world.time;
             if (division->hp <= 0.0f)
             {

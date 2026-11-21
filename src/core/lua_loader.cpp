@@ -4,6 +4,7 @@
 #include <lua.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
 LuaState::LuaState()
@@ -65,6 +66,10 @@ namespace
         c.tickHz = LuaReadFloat(L, t, "tick_hz", c.tickHz);
         c.matchSeconds = LuaReadFloat(L, t, "match_seconds", c.matchSeconds);
         c.engageKm = LuaReadFloat(L, t, "engage_km", c.engageKm);
+        c.frontageDefaultKm = LuaReadFloat(L, t, "frontage_default_km", c.frontageDefaultKm);
+        c.frontageMinKm = LuaReadFloat(L, t, "frontage_min_km", c.frontageMinKm);
+        c.frontageMaxKm = LuaReadFloat(L, t, "frontage_max_km", c.frontageMaxKm);
+        c.frontageReferenceKm = LuaReadFloat(L, t, "frontage_reference_km", c.frontageReferenceKm);
         c.territoryClearKm = LuaReadFloat(L, t, "territory_clear_km", c.territoryClearKm);
         c.baseCaptureRadius = LuaReadInt(L, t, "base_capture_radius", c.baseCaptureRadius);
         c.daysPerSecond = LuaReadFloat(L, t, "days_per_second", c.daysPerSecond);
@@ -118,11 +123,27 @@ namespace
         c.regenRate = LuaReadFloat(L, t, "regen_rate", c.regenRate);
         c.mapMinKm = LuaReadFloat(L, t, "map_min_km", c.mapMinKm);
         c.mapMaxKm = LuaReadFloat(L, t, "map_max_km", c.mapMaxKm);
+        c.roadSpeedHighway = LuaReadFloat(L, t, "road_speed_highway", c.roadSpeedHighway);
+        c.roadSpeedMajor = LuaReadFloat(L, t, "road_speed_major", c.roadSpeedMajor);
+        c.roadSpeedMinor = LuaReadFloat(L, t, "road_speed_minor", c.roadSpeedMinor);
+        c.cityManpowerPer100k = LuaReadFloat(L, t, "city_manpower_per_100k", c.cityManpowerPer100k);
+        c.elevationDefensePer100m = LuaReadFloat(L, t, "elevation_defense_per_100m", c.elevationDefensePer100m);
+        c.elevationDefenseMax = LuaReadFloat(L, t, "elevation_defense_max", c.elevationDefenseMax);
         LuaPop(L);
 
         if (c.mapCols < 8 || c.mapRows < 8 || c.hexDistanceKm <= 0.0f || c.tickHz <= 0.0f || c.weatherRegions < 1 || c.daysPerSecond <= 0.0f)
         {
             LuaFail("config has invalid map/tick/weather values");
+        }
+        if (!(c.roadSpeedHighway > 0.0f && c.roadSpeedMajor > 0.0f && c.roadSpeedMinor > 0.0f
+              && c.cityManpowerPer100k >= 0.0f && c.elevationDefensePer100m >= 0.0f && c.elevationDefenseMax >= 0.0f))
+        {
+            LuaFail("config has invalid road/city/elevation values");
+        }
+        if (!(0.0f < c.frontageMinKm && c.frontageMinKm <= c.frontageDefaultKm && c.frontageDefaultKm <= c.frontageMaxKm)
+            || !std::isfinite(c.frontageMaxKm) || !(c.frontageReferenceKm > 0.0f) || !std::isfinite(c.frontageReferenceKm))
+        {
+            LuaFail("config has invalid frontage values");
         }
     }
 

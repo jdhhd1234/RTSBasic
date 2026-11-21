@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-enum class CommandType : std::uint8_t { Move, Retreat, Produce, Surrender, Conscript, BuildFactory };
+enum class CommandType : std::uint8_t { Move, Retreat, Produce, Surrender, Conscript, BuildFactory, SetFrontage };
 
 // 프론트엔드와 AI가 시뮬레이션 상태를 바꾸는 유일한 통로.
 struct Command
@@ -19,6 +19,7 @@ struct Command
     int faction = PlayerFaction;
     int templateIndex = -1;
     int factoryType = -1;            // BuildFactory: GameData::factories 인덱스
+    float value = 0.0f;              // SetFrontage: 전선 길이 km
 };
 
 struct SideSetup
@@ -46,6 +47,7 @@ struct MatchSetup
     float matchSeconds = 1200.0f;
     bool customMap = false;          // true면 map을 그대로, false면 절차 생성
     HexMap map;
+    MapLayers layers;                // customMap일 때 QGIS 레이어 (도로, 하천, 도시, 광산, 부대, 초기 영토)
     int mapSeed = 1234;
     int mapCols = 60;
     int mapRows = 69;

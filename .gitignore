@@ -30,3 +30,6 @@ profile_*.txt
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# 에이전트별 빌드 디렉터리
+build_*/

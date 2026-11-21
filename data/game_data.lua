@@ -11,6 +11,10 @@ return {
         tick_hz = 10,
         match_seconds = 1200,
         engage_km = 20,
+        frontage_default_km = 30,
+        frontage_min_km = 10,
+        frontage_max_km = 100,
+        frontage_reference_km = 30,
         territory_clear_km = 30,
         base_capture_radius = 2,
         production_seconds = 30,
@@ -65,6 +69,12 @@ return {
         regen_rate = 0.01,       -- 커스텀 효과 regen: 교전 중에도 최대 체력 1%/초
         map_min_km = 400,
         map_max_km = 1200,
+        road_speed_highway = 2.0,
+        road_speed_major = 1.6,
+        road_speed_minor = 1.3,
+        city_manpower_per_100k = 0.25,  -- 인구 10만 명당 초당 인력
+        elevation_defense_per_100m = 0.03,
+        elevation_defense_max = 0.30,
     },
 
     -- armor_attack: 전차·기계화 계열 공격력 배율

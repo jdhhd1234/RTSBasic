@@ -5,6 +5,7 @@
 
 #include <raylib.h>
 
+#include <string>
 #include <vector>
 
 inline Vector2 ToRay(Vec2 v)
@@ -21,7 +22,11 @@ Color FactionColor(int faction);
 Color ResourceColor(Resource resource);
 
 // 월드 좌표(km) 그리기. BeginMode2D 안에서 호출.
-void DrawWorldUnits(const World& world, const GameData& data, float zoom, const std::vector<entt::entity>& selected);
+void DrawWorldUnits(const World& world, const GameData& data, float zoom, const std::vector<entt::entity>& selected, float alpha);
+void DrawMapSites(const World& world, float zoom, float detail);
+Rectangle DrawUnitFrame(Vector2 center, Vector2 half, int faction, bool selected, const char* echelon, float zoom, float alpha);
+void DrawUnitSymbol(Rectangle box, UnitClass cls, const std::string& fallbackId, float thick, float alpha);
+void DrawUnitHpBar(Vector2 topLeft, float width, float height, float hp, float maxHp, float alpha);
 
 // 화면 좌표 그리기. EndMode2D 뒤에 호출.
 void DrawWeatherLabels(const World& world, const Camera2D& camera);

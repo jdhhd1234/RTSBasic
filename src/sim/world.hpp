@@ -33,6 +33,7 @@ struct Mine
     Resource resource = Resource::Oil;
     float rate = 0.0f;               // 초당
     bool connected = false;          // 마지막 경제 틱에 공장과 이어졌는가
+    float reserve = -1.0f;           // 남은 매장량, 0 이하로 시작하면 무한. 다 캐면 고갈
 };
 
 struct FactionState

@@ -11,6 +11,38 @@
 
 namespace
 {
+    float HexEntry(Vec2 a, Vec2 b, Vec2 center, float distance)
+    {
+        constexpr float rise = std::numbers::sqrt3_v<float> * 0.5f;
+        constexpr std::array<Vec2, 3> axes{ { { 1.0f, 0.0f }, { 0.5f, rise }, { -0.5f, rise } } };
+        const float half = distance * 0.5f;
+        float enter = 0.0f;
+        float exit = 1.0f;
+        // 헥스를 마주 보는 세 쌍의 변으로 잘라 선분과의 교차 구간을 구한다.
+        for (const Vec2 axis : axes)
+        {
+            const float start = (a.x - center.x) * axis.x + (a.y - center.y) * axis.y;
+            const float delta = (b.x - a.x) * axis.x + (b.y - a.y) * axis.y;
+            if (delta == 0.0f)
+            {
+                if (std::abs(start) > half)
+                {
+                    return -1.0f;
+                }
+                continue;
+            }
+            const float u = (-half - start) / delta;
+            const float v = (half - start) / delta;
+            enter = std::max(enter, std::min(u, v));
+            exit = std::min(exit, std::max(u, v));
+            if (enter > exit)
+            {
+                return -1.0f;
+            }
+        }
+        return enter;
+    }
+
     float Hash01(int x, int y, std::uint32_t seed)
     {
         std::uint32_t h = static_cast<std::uint32_t>(x) * 374761393u + static_cast<std::uint32_t>(y) * 668265263u + seed * 2246822519u;
@@ -143,6 +175,18 @@ bool IsPassable(const HexMap& map, const GameData& data, int index)
     return data.terrain[ToIndex(map.hexes[static_cast<std::size_t>(index)].terrain)].move > 0.0f;
 }
 
+float RoadSpeedMultiplier(RoadTier tier, const GameConfig& config)
+{
+    switch (tier)
+    {
+    case RoadTier::Highway: return config.roadSpeedHighway;
+    case RoadTier::Major: return config.roadSpeedMajor;
+    case RoadTier::Minor: return config.roadSpeedMinor;
+    case RoadTier::None: return 1.0f;
+    }
+    return 1.0f;
+}
+
 float MapWidthKm(const HexMap& map)
 {
     return static_cast<float>(map.cols) * map.hexDistance;
@@ -151,6 +195,54 @@ float MapWidthKm(const HexMap& map)
 float MapHeightKm(const HexMap& map)
 {
     return static_cast<float>(map.rows) * map.hexDistance * std::numbers::sqrt3_v<float> / 2.0f;
+}
+
+std::vector<int> HexesAlongLine(const HexMap& map, const std::vector<Vec2>& points)
+{
+    const float d = map.hexDistance;
+    const float rowStep = d * (std::numbers::sqrt3_v<float> * 0.5f);
+    const float radius = d / std::numbers::sqrt3_v<float>;
+    const auto bounded = [](float value, int upper)
+    {
+        return static_cast<int>(std::clamp(value, 0.0f, static_cast<float>(upper)));
+    };
+    std::vector<int> hexes;
+    std::vector<char> seen(map.hexes.size(), 0);
+    std::vector<std::pair<float, int>> hits;
+    for (std::size_t i = 1; i < points.size(); ++i)
+    {
+        const Vec2 a = points[i - 1];
+        const Vec2 b = points[i];
+        const int firstRow = bounded(std::ceil((std::min(a.y, b.y) - radius) / rowStep), map.rows);
+        const int lastRow = bounded(std::floor((std::max(a.y, b.y) + radius) / rowStep) + 1.0f, map.rows);
+        hits.clear();
+        for (int row = firstRow; row < lastRow; ++row)
+        {
+            const float offset = (row & 1) != 0 ? 0.5f : 0.0f;
+            const int firstCol = bounded(std::ceil(std::min(a.x, b.x) / d - 0.5f - offset), map.cols);
+            const int lastCol = bounded(std::floor(std::max(a.x, b.x) / d + 0.5f - offset) + 1.0f, map.cols);
+            for (int col = firstCol; col < lastCol; ++col)
+            {
+                const int index = HexIndex(map, { col, row });
+                if (seen[static_cast<std::size_t>(index)] != 0)
+                {
+                    continue;
+                }
+                const float entry = HexEntry(a, b, HexCenter({ col, row }, d), d);
+                if (entry >= 0.0f)
+                {
+                    seen[static_cast<std::size_t>(index)] = 1;
+                    hits.emplace_back(entry, index);
+                }
+            }
+        }
+        std::sort(hits.begin(), hits.end());
+        for (const auto& hit : hits)
+        {
+            hexes.push_back(hit.second);
+        }
+    }
+    return hexes;
 }
 
 void GenerateMap(HexMap& map, const GameData& data, int cols, int rows, std::uint32_t seed)
@@ -204,9 +296,16 @@ std::vector<int> FindPath(const HexMap& map, const GameData& data, int start, in
     }
 
     const HexCoord goalCoord = IndexToHex(map, goal);
+    const float fastestTerrain = std::max_element(data.terrain.begin(), data.terrain.end(), [](const TerrainDef& a, const TerrainDef& b)
+    {
+        return a.move < b.move;
+    })->move;
+    const GameConfig& config = data.config;
+    const float fastestRoad = std::max({ 1.0f, config.roadSpeedHighway, config.roadSpeedMajor, config.roadSpeedMinor });
+    const float lowestStepCost = map.hexDistance / (fastestTerrain * fastestRoad);
     const auto heuristic = [&](int index)
     {
-        return static_cast<float>(HexDistance(IndexToHex(map, index), goalCoord)) * map.hexDistance;
+        return static_cast<float>(HexDistance(IndexToHex(map, index), goalCoord)) * lowestStepCost;
     };
 
     std::vector<float> cost(static_cast<std::size_t>(count), std::numeric_limits<float>::max());
@@ -237,12 +336,13 @@ std::vector<int> FindPath(const HexMap& map, const GameData& data, int start, in
                 continue;
             }
             const int next = HexIndex(map, nb);
-            const float move = data.terrain[ToIndex(map.hexes[static_cast<std::size_t>(next)].terrain)].move;
+            const Hex& hex = map.hexes[static_cast<std::size_t>(next)];
+            const float move = data.terrain[ToIndex(hex.terrain)].move;
             if (move <= 0.0f)
             {
                 continue;
             }
-            const float nextCost = cost[static_cast<std::size_t>(current)] + map.hexDistance / move;
+            const float nextCost = cost[static_cast<std::size_t>(current)] + map.hexDistance / (move * RoadSpeedMultiplier(hex.road, config));
             if (nextCost < cost[static_cast<std::size_t>(next)])
             {
                 cost[static_cast<std::size_t>(next)] = nextCost;

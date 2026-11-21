@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <iostream>
 #include <stdexcept>
 
 namespace
@@ -111,9 +112,13 @@ namespace
             const std::string relative = LuaReadString(L, map, "path", "");
             const std::filesystem::path file = std::filesystem::path(scenarioPath).parent_path() / relative;
             std::string error;
-            if (relative.empty() || !LoadGeoJsonMap(file.string(), scenario.data, setup.map, error))
+            if (relative.empty() || !LoadGeoJsonMap(file.string(), scenario.data, setup.map, setup.layers, error))
             {
                 LuaFail("map: " + (relative.empty() ? std::string("geojson path is missing") : error));
+            }
+            if (!error.empty())
+            {
+                std::clog << error << '\n';
             }
             setup.customMap = true;
             scenario.mapLabel = "geojson " + file.filename().string();

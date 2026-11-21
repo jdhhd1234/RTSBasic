@@ -34,8 +34,6 @@ struct GameView
     int lastTicks = 0;               // 지난 프레임에 돈 시뮬레이션 틱 수
     std::string profileMessage;
     int economyFaction = PlayerFaction;   // 관전 중 경제 탭에 보여줄 진영
-    MapMode mapMode = MapMode::Strategic; // M 키: 전략 ↔ 작전 지도
-    Camera2D strategicCamera{};      // 작전 지도로 들어가기 전 카메라 (돌아올 때 복원)
     MapView mapView;
 };
 

@@ -87,7 +87,6 @@ void UpdateMovement(World& world, const GameData& data, float dt)
     {
         presence.push_back({ position.value, faction.id });
     }
-    const float engageRange = data.config.engageKm + 0.5f;
 
     std::vector<entt::entity> finished;
     auto view = world.registry.view<Division, Position, Faction, MovePath>();
@@ -102,6 +101,7 @@ void UpdateMovement(World& world, const GameData& data, float dt)
         // 적이 교전 반경 안이면 정지해서 싸운다. 경로는 유지해서 적이 사라지면 다시 간다.
         if (!world.registry.all_of<Retreating>(entity))
         {
+            const float engageRange = division.frontageKm + 0.5f;
             const bool engaged = std::any_of(presence.begin(), presence.end(), [&](const auto& other)
             {
                 return other.second != faction.id && Distance(other.first, position.value) <= engageRange;
@@ -120,11 +120,12 @@ void UpdateMovement(World& world, const GameData& data, float dt)
         }
 
         const int current = HexAt(world, position.value);
-        const Terrain terrain = world.map.hexes[static_cast<std::size_t>(current)].terrain;
+        const Hex& hex = world.map.hexes[static_cast<std::size_t>(current)];
         const WeatherDef& weather = data.weather[ToIndex(WeatherAtHex(world, current))];
         const float speed = division.speed
             * FactionSpeedMultiplier(world.factions[static_cast<std::size_t>(faction.id)], data.config)
-            * std::max(0.1f, TerrainMoveMultiplier(terrain, division.effects, data))
+            * std::max(0.1f, TerrainMoveMultiplier(hex.terrain, division.effects, data))
+            * RoadSpeedMultiplier(hex.road, data.config)
             * WeatherMultiplier(weather.move, division.effects);
 
         const Vec2 target = HexCenter(IndexToHex(world.map, next), world.map.hexDistance);

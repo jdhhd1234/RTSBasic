@@ -23,3 +23,6 @@ float RetreatThreshold(std::uint32_t effects, const GameConfig& config);
 
 // 사단 체력비에 따른 공격 배율.
 float HpFactor(float hp, float maxHp, const GameConfig& config);
+
+// 전선이 넓을수록 받는 피해는 늘고 공격은 약해진다(역수).
+float FrontageSpread(float frontageKm, const GameConfig& config);

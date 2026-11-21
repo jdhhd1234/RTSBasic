@@ -143,7 +143,11 @@ struct GameConfig
     int mapCities = 24;
     float tickHz = 10.0f;
     float matchSeconds = 1200.0f;
-    float engageKm = 20.0f;
+    float engageKm = 20.0f;          // 기지 반격 거리
+    float frontageDefaultKm = 30.0f; // 사단 담당 전선 (problem.md 추가사항 2)
+    float frontageMinKm = 10.0f;
+    float frontageMaxKm = 100.0f;
+    float frontageReferenceKm = 30.0f;   // 이보다 넓으면 밀도가 낮아져 공방이 약해진다
     float territoryClearKm = 30.0f;
     int baseCaptureRadius = 2;
     // 경제 (problem.md 2026/11/21)
@@ -198,6 +202,12 @@ struct GameConfig
     float regenRate = 0.01f;         // regen 효과: 교전 중에도 최대 체력 비율/초
     float mapMinKm = 400.0f;
     float mapMaxKm = 1200.0f;
+    float roadSpeedHighway = 2.0f;
+    float roadSpeedMajor = 1.6f;
+    float roadSpeedMinor = 1.3f;
+    float cityManpowerPer100k = 0.25f;
+    float elevationDefensePer100m = 0.03f;
+    float elevationDefenseMax = 0.3f;
 };
 
 struct GameData

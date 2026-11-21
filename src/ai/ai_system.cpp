@@ -140,9 +140,26 @@ void UpdateAI(World& world, const GameData& data, float dt)
             {
                 const AiDecision decision = ChooseDivisionAction(world, board, self, entity);
                 ++stats.actions[static_cast<std::size_t>(decision.action)];
+                const Division& division = world.registry.get<Division>(entity);
+                const GameConfig& c = data.config;
+                float frontageKm = c.frontageDefaultKm;
+                // shortcut: 행동별 고정 조정폭, 지형·위협에 따른 전선 계획을 넣을 때 개선.
+                if (decision.action == AiAction::Defend)
+                {
+                    frontageKm += 20.0f;
+                }
+                else if (decision.action == AiAction::Attack || decision.action == AiAction::Raid)
+                {
+                    frontageKm -= 10.0f;
+                }
+                frontageKm = std::clamp(frontageKm, c.frontageMinKm, c.frontageMaxKm);
+                if (frontageKm != division.frontageKm)
+                {
+                    ApplyCommand(world, data, Command{ .type = CommandType::SetFrontage, .entity = entity, .faction = self, .value = frontageKm });
+                }
                 if (decision.threatIndex >= 0)
                 {
-                    board.threats[static_cast<std::size_t>(decision.threatIndex)].assigned += world.registry.get<Division>(entity).hp;
+                    board.threats[static_cast<std::size_t>(decision.threatIndex)].assigned += division.hp;
                 }
                 if (decision.hex >= 0 && decision.hex != CurrentGoal(world, entity))
                 {

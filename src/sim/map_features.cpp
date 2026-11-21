@@ -87,7 +87,7 @@ namespace
         return chains;
     }
 
-    void BuildRoads(const HexMap& map, const GameData& data, MapFeatures& features)
+    void BuildRoads(const HexMap& map, const GameData& data, const std::vector<int>& baseHexes, MapFeatures& features)
     {
         const std::size_t neighbors = features.sites.size() > 60 ? 1 : 2;
         std::set<std::pair<int, int>> connected;
@@ -126,7 +126,11 @@ namespace
                 {
                     centers.push_back(CenterAt(map, index));
                 }
-                features.roads.push_back({ std::move(path), SimplifyPolyline(centers, map.hexDistance * 0.3f) });
+                const bool startBase = std::find(baseHexes.begin(), baseHexes.end(), start) != baseHexes.end();
+                const bool goalBase = std::find(baseHexes.begin(), baseHexes.end(), goal) != baseHexes.end();
+                const RoadTier tier = startBase && goalBase ? RoadTier::Highway :
+                    startBase || goalBase ? RoadTier::Major : RoadTier::Minor;
+                features.roads.push_back({ std::move(path), SimplifyPolyline(centers, map.hexDistance * 0.3f), tier });
             }
         }
     }
@@ -232,7 +236,7 @@ std::vector<MapChain> FrontLines(const HexMap& map)
     });
 }
 
-void BuildMapFeatures(const HexMap& map, const GameData& data, const std::vector<int>& baseHexes, MapFeatures& out)
+void BuildMapFeatures(HexMap& map, const GameData& data, const std::vector<int>& baseHexes, const MapLayers& layers, MapFeatures& out)
 {
     MapFeatures features;
     features.coastlines = BoundaryChains(map, [&](int a, int b)
@@ -240,7 +244,17 @@ void BuildMapFeatures(const HexMap& map, const GameData& data, const std::vector
         return (map.hexes[static_cast<std::size_t>(a)].terrain == Terrain::Sea)
             != (map.hexes[static_cast<std::size_t>(b)].terrain == Terrain::Sea);
     });
-    features.rivers = RiverChains(map);
+    if (layers.rivers.empty())
+    {
+        features.rivers = RiverChains(map);
+    }
+    else
+    {
+        for (const auto& river : layers.rivers)
+        {
+            features.rivers.push_back({ river, false });
+        }
+    }
 
     const int count = static_cast<int>(map.hexes.size());
     std::vector<char> isSite(map.hexes.size(), 0);
@@ -261,11 +275,58 @@ void BuildMapFeatures(const HexMap& map, const GameData& data, const std::vector
     }
     for (int i = 0; i < count; ++i)
     {
-        if (map.hexes[static_cast<std::size_t>(i)].terrain == Terrain::City)
+        Hex& hex = map.hexes[static_cast<std::size_t>(i)];
+        hex.road = RoadTier::None;
+        if (hex.terrain == Terrain::City)
         {
             addSite(i);
+            if (layers.cities.empty())
+            {
+                const HexCoord coord = IndexToHex(map, i);
+                const bool nearBase = std::any_of(baseHexes.begin(), baseHexes.end(), [&](int base)
+                {
+                    return base >= 0 && base < count && HexDistance(coord, IndexToHex(map, base)) <= 2;
+                });
+                const std::uint32_t hash = static_cast<std::uint32_t>(i) * 2654435761u;
+                const int population = 50000 + static_cast<int>((hash ^ (hash >> 16)) % 250001u);
+                features.cities.push_back({ i, {}, nearBase ? CityTier::City : CityTier::Town, population });
+            }
         }
     }
-    BuildRoads(map, data, features);
+    for (const GeoCity& city : layers.cities)
+    {
+        const HexCoord coord = WorldToHex(city.position, map.hexDistance);
+        if (InBounds(map, coord))
+        {
+            const int index = HexIndex(map, coord);
+            addSite(index);
+            features.cities.push_back({ index, city.name, city.tier, city.population });
+        }
+    }
+
+    if (layers.roads.empty())
+    {
+        BuildRoads(map, data, baseHexes, features);
+    }
+    else
+    {
+        for (const GeoRoad& road : layers.roads)
+        {
+            auto hexes = HexesAlongLine(map, road.points);
+            if (!hexes.empty())
+            {
+                features.roads.push_back({ std::move(hexes), SimplifyPolyline(road.points, map.hexDistance * 0.3f), road.tier });
+            }
+        }
+    }
+    // shortcut: 도로는 헥스 단위 속도 보정. 도로망 수송량은 별도의 연결 정보가 필요하다.
+    for (const MapRoad& road : features.roads)
+    {
+        for (const int index : road.hexes)
+        {
+            Hex& hex = map.hexes[static_cast<std::size_t>(index)];
+            hex.road = std::min(hex.road, road.tier);
+        }
+    }
     out = std::move(features);
 }
