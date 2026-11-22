@@ -230,11 +230,16 @@ void DrawSandbox(AppState& app, const GameData& data)
         }
 
         y += 10.0f;
+        TextDraw("Match length", static_cast<int>(x), static_cast<int>(y), 20, LIGHTGRAY);
+        y += 28.0f;
+        DrawMatchLengthPicker(app, x, y, 528.0f);
+        y += 56.0f;
         if (UiButton({ x, y, 520.0f, 40.0f }, sb.botBattle ? "[x] Bot battle (AI vs AI, spectate)" : "[ ] Bot battle (AI vs AI, spectate)", true, sb.botBattle))
         {
             sb.botBattle = !sb.botBattle;
         }
         y += 46.0f;
+        y += DrawRlToggle(app, x, y, 520.0f);
         if (UiButton({ x, y, 520.0f, 40.0f }, sb.profiler ? "[x] Profiler (F3 in game)" : "[ ] Profiler (F3 in game)", true, sb.profiler))
         {
             sb.profiler = !sb.profiler;
@@ -246,6 +251,7 @@ void DrawSandbox(AppState& app, const GameData& data)
             MatchSetup setup;
             if (BuildSetup(app, setup))
             {
+                ApplyMatchLength(app, setup);
                 StartMatch(app, sb.scenario.data, setup);
                 app.view.profilerOpen = sb.profiler;
                 app.world.profiler.enabled = sb.profiler;

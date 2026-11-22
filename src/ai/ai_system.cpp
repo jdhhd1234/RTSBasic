@@ -126,6 +126,11 @@ void UpdateAI(World& world, const GameData& data, float dt)
         { ProfileScope scope(profiler, ProfileSection::AiHtn); board.plan = PlanCommand(board, difficulty); }
         { ProfileScope scope(profiler, ProfileSection::AiExecute); ExecutePlan(world, data, self, board); }
 
+        if (state.policy.beginThink)
+        {
+            state.policy.beginThink(world, board, self);
+        }
+
         {
             ProfileScope scope(profiler, ProfileSection::AiUtility);
             std::vector<entt::entity> divisions;
@@ -138,7 +143,11 @@ void UpdateAI(World& world, const GameData& data, float dt)
             }
             for (const entt::entity entity : divisions)
             {
-                const AiDecision decision = ChooseDivisionAction(world, board, self, entity);
+                const std::vector<AiDecision> candidates = ListDivisionCandidates(world, board, self, entity);
+                const std::size_t chosen = state.policy.chooseDivision
+                    ? std::min(state.policy.chooseDivision(world, board, self, entity, candidates), candidates.size() - 1)
+                    : BestCandidate(candidates);
+                const AiDecision decision = candidates[chosen];
                 ++stats.actions[static_cast<std::size_t>(decision.action)];
                 const Division& division = world.registry.get<Division>(entity);
                 const GameConfig& c = data.config;

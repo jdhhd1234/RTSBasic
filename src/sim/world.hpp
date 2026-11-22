@@ -10,6 +10,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <random>
 #include <string>
 #include <vector>
@@ -34,6 +35,17 @@ struct Mine
     float rate = 0.0f;               // 초당
     bool connected = false;          // 마지막 경제 틱에 공장과 이어졌는가
     float reserve = -1.0f;           // 남은 매장량, 0 이하로 시작하면 무한. 다 캐면 고갈
+};
+
+struct World;
+
+// 외부 행동 선택기 (ai/deeplearn RL). 둘 다 비어 있으면 기존 Utility AI 그대로.
+//  beginThink: 판단 주기 시작 (Blackboard·HTN 실행 뒤, 사단 선택 전)
+//  chooseDivision: ListDivisionCandidates 결과 중 고른 인덱스
+struct AiPolicyHook
+{
+    std::function<void(const World&, const AiBlackboard&, int)> beginThink;
+    std::function<std::size_t(const World&, const AiBlackboard&, int, entt::entity, const std::vector<AiDecision>&)> chooseDivision;
 };
 
 struct FactionState
@@ -63,6 +75,7 @@ struct FactionState
     int spawnedDivisions = 0;
     AiBlackboard blackboard;         // aiControlled일 때 AI 지휘정보망
     AiProfile aiProfile;             // 프로파일러 AI 통계
+    AiPolicyHook policy;             // 비어 있으면 Utility 최고점
 };
 
 struct WeatherRegion

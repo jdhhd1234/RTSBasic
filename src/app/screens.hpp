@@ -67,6 +67,8 @@ struct AppState
     int stage = 0;
     int difficulty = 1;
     bool botBattle = false;
+    int matchLength = 0;             // MatchLengthMinutes 인덱스 (캠페인·샌드박스 공용)
+    bool rlAi = false;               // AI 진영에 학습된 RL 정책 사용 (MINRTS_TORCH 빌드만)
     GameData matchData;              // 진행 중인 판의 데이터 (샌드박스는 커스텀 대대 포함)
     World world;
     GameView view;
@@ -93,6 +95,13 @@ void DrawEconomyPanel(AppState& app, const GameData& data, float top, float bott
 
 // 샌드박스 프로파일러 오버레이 (profiler_overlay.cpp).
 void DrawProfilerOverlay(AppState& app, float top);
+
+// 경기 시간 선택 (menu_screen.cpp). 0 = 기본(데이터/시나리오 값), -1 = 무제한, 그 외 분.
+constexpr std::array<int, 6> MatchLengthMinutes = { 0, 20, 30, 60, 90, -1 };
+void DrawMatchLengthPicker(AppState& app, float x, float y, float width);
+void ApplyMatchLength(const AppState& app, MatchSetup& setup);
+// RL AI 토글 버튼. MINRTS_TORCH 빌드가 아니면 아무것도 그리지 않고 높이 0을 돌려준다.
+float DrawRlToggle(AppState& app, float x, float y, float width);
 
 void UpdateGame(AppState& app, const GameData& data);
 void DrawGame(AppState& app, const GameData& data);

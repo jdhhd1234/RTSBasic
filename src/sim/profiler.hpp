@@ -10,7 +10,7 @@
 enum class ProfileSection : std::uint8_t
 {
     // 시뮬레이션 틱 (StepWorld)
-    Occupancy, Weather, Ai, Movement, Combat, Territory, Economy, Victory,
+    Occupancy, Weather, Ai, Movement, Battalions, Combat, Territory, Economy, Victory,
     // AI 내부 (Ai 안에 포함)
     AiBlackboard, AiHtn, AiExecute, AiUtility,
     // 화면 (프레임)
@@ -21,7 +21,7 @@ enum class ProfileSection : std::uint8_t
 constexpr std::size_t ProfileSectionCount = static_cast<std::size_t>(ProfileSection::Count);
 
 constexpr std::array<const char*, ProfileSectionCount> ProfileSectionNames = {
-    "occupancy", "weather", "ai", "movement", "combat", "territory", "economy", "victory",
+    "occupancy", "weather", "ai", "movement", "battalions", "combat", "territory", "economy", "victory",
     "ai.blackboard", "ai.htn", "ai.execute", "ai.utility",
     "draw.map", "draw.units", "draw.ui",
 };

@@ -1,4 +1,5 @@
 #include "app/map_view.hpp"
+#include "ai/ai.hpp"
 #include "app/render.hpp"
 #include "app/ui.hpp"
 #include "sim/components.hpp"
@@ -389,30 +390,6 @@ namespace
         }
     }
 
-    Vec2 FrontageAxis(const World& world, Vec2 position, int factionId)
-    {
-        const Vec2 center = { MapWidthKm(world.map) / 2.0f, MapHeightKm(world.map) / 2.0f };
-        Vec2 facing = { center.x - position.x, center.y - position.y };
-        float nearest = std::numeric_limits<float>::infinity();
-        for (const auto [entity, division, enemy, faction] : world.registry.view<Division, Position, Faction>().each())
-        {
-            if (faction.id == factionId)
-            {
-                continue;
-            }
-            const float dx = enemy.value.x - position.x;
-            const float dy = enemy.value.y - position.y;
-            const float distance = dx * dx + dy * dy;
-            if (distance > 0.0f && distance < nearest)
-            {
-                facing = { dx, dy };
-                nearest = distance;
-            }
-        }
-        const float length = std::hypot(facing.x, facing.y);
-        return length > 0.0f ? Vec2{ -facing.y / length, facing.x / length } : Vec2{ 1.0f, 0.0f };
-    }
-
     bool InCombat(const World& world, const Division& division)
     {
         return world.time - division.lastCombatTime < 1.0f;
@@ -461,7 +438,7 @@ namespace
         DrawCircleLinesV(ToRay(position), 4.0f / zoom, Fade(UiColors::Accent, alpha));
     }
 
-    void DrawSubunits(const Division& division, const GameData& data, Vec2 position, Vec2 axis, int faction, bool selected,
+    void DrawSubunits(const Division& division, const GameData& data, Vec2 position, int faction, bool selected,
                       UnitEchelon echelon, float zoom, float alpha)
     {
         constexpr std::size_t BrigadeBattalions = 3;
@@ -473,17 +450,27 @@ namespace
             return;
         }
 
-        const float step = division.frontageKm / static_cast<float>(count);
+        const float step = division.frontageKm / static_cast<float>(count);   // 기호 크기 계산용 평균 간격
         const Vector2 nominal = brigade ? Vector2{ 15.0f, 10.0f } : Vector2{ 12.0f, 8.0f };
         const float scale = count == 1 ? 1.0f : std::clamp(step * zoom / (2.0f * nominal.x + 2.0f), 0.7f, 1.0f);
         const Vector2 half = { nominal.x * scale / zoom, nominal.y * scale / zoom };
         for (std::size_t i = 0; i < count; ++i)
         {
-            const float offset = (static_cast<float>(i) + 0.5f) * step - division.frontageKm * 0.5f;
-            const Vector2 p = { position.x + axis.x * offset, position.y + axis.y * offset };
-            const Rectangle symbol = DrawUnitFrame(p, half, faction, selected, brigade ? "X" : "II", zoom, alpha);
+            // 대대 AI가 고른 실제 위치. 여단은 소속 대대들의 중심.
             const std::size_t start = i * stride;
             const std::size_t end = std::min(start + stride, division.battalions.size());
+            Vector2 p = { 0.0f, 0.0f };
+            for (std::size_t b = start; b < end; ++b)
+            {
+                const Vec2 unit = b < division.units.size() ? division.units[b].position : position;
+                p.x += unit.x / static_cast<float>(end - start);
+                p.y += unit.y / static_cast<float>(end - start);
+            }
+            if (!brigade && start < division.units.size() && division.units[start].task == BattalionTask::Engage)
+            {
+                DrawLineEx(p, ToRay(division.units[start].goal), 1.0f / zoom, Fade(FactionColor(faction), 0.5f * alpha));
+            }
+            const Rectangle symbol = DrawUnitFrame(p, half, faction, selected, brigade ? "X" : "II", zoom, alpha);
             const BattalionDef* def = &data.battalions[static_cast<std::size_t>(division.battalions[start])];
             for (std::size_t b = start + 1; b < end && def->unitClass == UnitClass::Support; ++b)
             {
@@ -506,18 +493,19 @@ namespace
                 {
                     continue;
                 }
-                const Vec2 axis = FrontageAxis(world, position.value, faction.id);
+                const Vec2 facing = DivisionFacing(world, position.value, faction.id);
+                const Vec2 axis = { -facing.y, facing.x };
                 if (isSelected)
                 {
                     DrawSelectedFrontage(position.value, axis, division.frontageKm, zoom, detail);
                 }
                 if (brigade > 0.0f)
                 {
-                    DrawSubunits(division, data, position.value, axis, faction.id, isSelected, UnitEchelon::Brigade, zoom, brigade);
+                    DrawSubunits(division, data, position.value, faction.id, isSelected, UnitEchelon::Brigade, zoom, brigade);
                 }
                 if (battalion > 0.0f)
                 {
-                    DrawSubunits(division, data, position.value, axis, faction.id, isSelected, UnitEchelon::Battalion, zoom, battalion);
+                    DrawSubunits(division, data, position.value, faction.id, isSelected, UnitEchelon::Battalion, zoom, battalion);
                 }
 
                 // 전투 상태는 여단/대대가 공유하는 사단 위치에 표시한다.

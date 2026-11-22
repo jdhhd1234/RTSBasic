@@ -220,7 +220,8 @@ void UpdateTerritory(World& world, const GameData& data)
 void CheckVictory(World& world, const GameData& data)
 {
     (void)data;
-    if (world.over || world.time < world.matchSeconds)
+    // matchSeconds <= 0: 무제한. HQ 함락(CaptureBase)으로만 끝난다.
+    if (world.over || world.matchSeconds <= 0.0f || world.time < world.matchSeconds)
     {
         return;
     }

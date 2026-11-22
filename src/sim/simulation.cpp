@@ -427,6 +427,7 @@ entt::entity SpawnDivision(World& world, const GameData& data, int faction, cons
     world.registry.emplace<Faction>(entity, faction);
     world.registry.emplace<Position>(entity, position);
     world.registry.emplace<Division>(entity, std::move(division));
+    ResetBattalionPositions(world, entity);
     return entity;
 }
 
@@ -534,6 +535,7 @@ void StepWorld(World& world, const GameData& data, float dt)
     { ProfileScope scope(profiler, ProfileSection::Weather); UpdateWeather(world, data, dt); }
     { ProfileScope scope(profiler, ProfileSection::Ai); UpdateAI(world, data, dt); }
     { ProfileScope scope(profiler, ProfileSection::Movement); UpdateMovement(world, data, dt); }
+    { ProfileScope scope(profiler, ProfileSection::Battalions); UpdateBattalionAI(world, data, dt); }
     { ProfileScope scope(profiler, ProfileSection::Occupancy); RebuildOccupancy(world); }
     { ProfileScope scope(profiler, ProfileSection::Combat); UpdateCombat(world, data, dt); }
     { ProfileScope scope(profiler, ProfileSection::Territory); UpdateTerritory(world, data); }

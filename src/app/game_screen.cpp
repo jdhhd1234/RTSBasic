@@ -8,6 +8,10 @@
 #include "sim/simulation.hpp"
 #include "sim/systems.hpp"
 
+#ifdef MINRTS_TORCH
+#include "ai/deeplearn/rl_agent.hpp"
+#include <filesystem>
+#endif
 #include <algorithm>
 #include <cmath>
 #include <format>
@@ -157,12 +161,14 @@ namespace
         const World& world = app.world;
         const FactionState& blue = world.factions[PlayerFaction];
         const FactionState& red = world.factions[AiFaction];
-        const int remaining = std::max(0, static_cast<int>(world.matchSeconds - world.time));
+        // 무제한이면 남은 시간 대신 경과 시간을 보여준다.
+        const bool unlimited = world.matchSeconds <= 0.0f;
+        const int remaining = unlimited ? static_cast<int>(world.time) : std::max(0, static_cast<int>(world.matchSeconds - world.time));
         const int width = GetScreenWidth();
         DrawRectangle(0, 0, width, static_cast<int>(TopBarHeight), UiColors::Panel);
 
         const std::string text = world.title + "    " + GameDateText(world.time, app.matchData.config)
-            + "    Time " + std::to_string(remaining / 60) + ":" + (remaining % 60 < 10 ? "0" : "") + std::to_string(remaining % 60)
+            + (unlimited ? "    Elapsed " : "    Time ") + std::to_string(remaining / 60) + ":" + (remaining % 60 < 10 ? "0" : "") + std::to_string(remaining % 60)
             + "    x" + std::to_string(SpeedSteps[static_cast<std::size_t>(app.view.speedIndex)])
             + "    " + blue.name + " " + std::to_string(blue.ownedHexes) + " / " + red.name + " " + std::to_string(red.ownedHexes);
         TextDraw(text.c_str(), 12, 9, 20, RAYWHITE);
@@ -383,6 +389,28 @@ void StartMatch(AppState& app, GameData matchData, const MatchSetup& setup)
 {
     app.matchData = std::move(matchData);
     InitWorld(app.world, app.matchData, setup, std::random_device{}());
+#ifdef MINRTS_TORCH
+    // AI 진영에 학습된 정책을 붙인다. 모델이 없거나 못 읽으면 기존 Utility AI 그대로.
+    const std::string checkpoint = app.dataDir + "ai/rl_policy.pt";
+    if (app.rlAi && std::filesystem::exists(checkpoint))
+    {
+        try
+        {
+            for (FactionState& faction : app.world.factions)
+            {
+                if (faction.aiControlled)
+                {
+                    faction.policy = MakeRlInferenceHook(app.matchData, checkpoint);
+                }
+            }
+            PushEvent(app.world, "RL AI on", EventKind::Info);
+        }
+        catch (const std::exception& error)
+        {
+            PushEvent(app.world, std::string("RL AI load failed: ") + error.what(), EventKind::Bad);
+        }
+    }
+#endif
 
     const float mapWidth = MapWidthKm(app.world.map);
     const float mapHeight = MapHeightKm(app.world.map);

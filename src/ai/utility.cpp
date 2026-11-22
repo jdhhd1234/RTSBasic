@@ -18,16 +18,13 @@ namespace
         return 1.0f / (1.0f + distanceKm / scaleKm);
     }
 
-    void Consider(AiDecision& best, AiAction action, int hex, float score, int currentGoal, int threatIndex = -1)
+    void Consider(std::vector<AiDecision>& candidates, AiAction action, int hex, float score, int currentGoal, int threatIndex = -1)
     {
         if (hex >= 0 && hex == currentGoal)
         {
             score += InertiaBonus;
         }
-        if (score > best.score)
-        {
-            best = { .action = action, .hex = hex, .score = score, .threatIndex = threatIndex };
-        }
+        candidates.push_back({ .action = action, .hex = hex, .score = score, .threatIndex = threatIndex });
     }
 }
 
@@ -43,15 +40,16 @@ int CurrentGoal(const World& world, entt::entity entity)
 }
 
 
-AiDecision ChooseDivisionAction(const World& world, const AiBlackboard& board, int self, entt::entity entity)
+std::vector<AiDecision> ListDivisionCandidates(const World& world, const AiBlackboard& board, int self, entt::entity entity)
 {
     const Division& division = world.registry.get<Division>(entity);
     const Vec2 position = world.registry.get<Position>(entity).value;
     const float health = division.maxHp > 0.0f ? division.hp / division.maxHp : 0.0f;
     const int goal = CurrentGoal(world, entity);
 
-    AiDecision best;
-    best.score = 0.15f;   // Hold 기본 점수: 할 일이 마땅치 않으면 제자리
+    // 0번은 항상 Hold. 기본 점수: 할 일이 마땅치 않으면 제자리
+    std::vector<AiDecision> candidates;
+    candidates.push_back({ .action = AiAction::Hold, .hex = -1, .score = 0.15f });
 
     // 방어: 위협 크기 × 거리 × HTN 지시 여부 × 아직 부족한 병력
     for (int i = 0; i < static_cast<int>(board.threats.size()); ++i)
@@ -62,18 +60,18 @@ AiDecision ChooseDivisionAction(const World& world, const AiBlackboard& board, i
         const float urgency = std::clamp(threat.enemyStrength / (threat.ownStrength + 1.0f), 0.0f, 1.0f);
         const float score = (threat.requested ? 0.9f : 0.4f) * (threat.hq ? 1.2f : 1.0f) * urgency * std::max(unmet, 0.2f)
             * Proximity(Distance(position, threat.position), 200.0f) * 2.0f;
-        Consider(best, AiAction::Defend, threat.baseHex, score, goal, i);
+        Consider(candidates, AiAction::Defend, threat.baseHex, score, goal, i);
     }
 
     // 공격 / 집결: HTN 태세를 따른다
     if (board.posture == AiPosture::Attack && board.attackHex >= 0)
     {
-        Consider(best, AiAction::Attack, board.attackHex, 0.7f * (0.4f + 0.6f * health), goal);
+        Consider(candidates, AiAction::Attack, board.attackHex, 0.7f * (0.4f + 0.6f * health), goal);
     }
     if (board.posture == AiPosture::Regroup && board.rallyHex >= 0)
     {
         const bool there = Distance(position, board.rallyPosition) <= RallyRadiusKm;
-        Consider(best, AiAction::Rally, board.rallyHex, there ? 0.1f : 0.55f, goal);
+        Consider(candidates, AiAction::Rally, board.rallyHex, there ? 0.1f : 0.55f, goal);
     }
 
     // 기습: 가까운 적 기지가 거의 비어 있으면 태세와 관계없이 점령하러 간다
@@ -82,7 +80,7 @@ AiDecision ChooseDivisionAction(const World& world, const AiBlackboard& board, i
         const float distance = Distance(position, objective.position);
         if (distance <= RaidRadiusKm && objective.guardStrength < division.hp * 0.5f)
         {
-            Consider(best, AiAction::Raid, objective.hex, 0.6f * health * Proximity(distance, 60.0f) * 1.6f, goal);
+            Consider(candidates, AiAction::Raid, objective.hex, 0.6f * health * Proximity(distance, 60.0f) * 1.6f, goal);
         }
     }
 
@@ -102,9 +100,27 @@ AiDecision ChooseDivisionAction(const World& world, const AiBlackboard& board, i
         }
         if (nearestHex >= 0)
         {
-            Consider(best, AiAction::Recover, nearestHex, (1.0f - health) * 1.1f, goal);
+            Consider(candidates, AiAction::Recover, nearestHex, (1.0f - health) * 1.1f, goal);
+        }
+    }
+    return candidates;
+}
+
+std::size_t BestCandidate(const std::vector<AiDecision>& candidates)
+{
+    std::size_t best = 0;
+    for (std::size_t i = 1; i < candidates.size(); ++i)
+    {
+        if (candidates[i].score > candidates[best].score)
+        {
+            best = i;
         }
     }
     return best;
 }
 
+AiDecision ChooseDivisionAction(const World& world, const AiBlackboard& board, int self, entt::entity entity)
+{
+    const std::vector<AiDecision> candidates = ListDivisionCandidates(world, board, self, entity);
+    return candidates[BestCandidate(candidates)];
+}

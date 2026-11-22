@@ -67,9 +67,17 @@ void UpdateCombat(World& world, const GameData& data, float dt)
     const GameConfig& c = data.config;
 
     std::vector<CombatTarget> targets;
+    // 적 사단은 대대 위치마다 표적이 된다 (피해는 사단 hp로 합산).
     for (const auto [entity, division, position, faction] : world.registry.view<Division, Position, Faction>().each())
     {
-        targets.push_back({ entity, faction.id, position.value, HexAt(world, position.value), false });
+        if (division.units.empty())
+        {
+            targets.push_back({ entity, faction.id, position.value, HexAt(world, position.value), false });
+        }
+        for (const BattalionUnit& unit : division.units)
+        {
+            targets.push_back({ entity, faction.id, unit.position, HexAt(world, unit.position), false });
+        }
     }
     for (const auto [entity, base, position, faction] : world.registry.view<Base, Position, Faction>().each())
     {
@@ -84,7 +92,7 @@ void UpdateCombat(World& world, const GameData& data, float dt)
         division.hasTarget = false;
     }
 
-    // 사단 공격: 대대마다 사거리 안의 가장 가까운 적을 쏜다.
+    // 사단 공격: 대대마다 자기 위치에서 사거리 안의 가장 가까운 적을 쏜다.
     auto attackers = world.registry.view<Division, Position, Faction>(entt::exclude<Retreating>);
     for (const auto [entity, division, position, faction] : attackers.each())
     {
@@ -113,15 +121,18 @@ void UpdateCombat(World& world, const GameData& data, float dt)
             divisionMult *= 1.0f + c.mountainAttack;
         }
 
-        for (const int b : division.battalions)
+        for (std::size_t i = 0; i < division.battalions.size(); ++i)
         {
-            const BattalionDef& def = data.battalions[static_cast<std::size_t>(b)];
+            const BattalionDef& def = data.battalions[static_cast<std::size_t>(division.battalions[i])];
             if (def.attack <= 0.0f)
             {
                 continue;
             }
-            const float range = std::max(division.frontageKm, def.range * WeatherMultiplier(weather.range, division.effects));
-            const CombatTarget* target = NearestEnemy(targets, faction.id, position.value, range, false);
+            const Vec2 from = i < division.units.size() ? division.units[i].position : position.value;
+            const int fromHex = HexAt(world, from);
+            const Terrain fromTerrain = world.map.hexes[static_cast<std::size_t>(fromHex)].terrain;
+            const float range = def.range * WeatherMultiplier(weather.range, division.effects);
+            const CombatTarget* target = NearestEnemy(targets, faction.id, from, range, false);
             if (target == nullptr)
             {
                 continue;
@@ -130,7 +141,7 @@ void UpdateCombat(World& world, const GameData& data, float dt)
             float mult = divisionMult;
             if (def.unitClass == UnitClass::Armor || def.unitClass == UnitClass::Mech)
             {
-                mult *= data.terrain[ToIndex(terrain)].armorAttack;
+                mult *= data.terrain[ToIndex(fromTerrain)].armorAttack;
             }
             if (!target->isBase)
             {
@@ -142,7 +153,7 @@ void UpdateCombat(World& world, const GameData& data, float dt)
                 }
             }
 
-            damage[target->entity] += def.attack * mult * c.damageScale * DefenseScale(c, TargetDefense(world, data, *target, hex)) * dt;
+            damage[target->entity] += def.attack * mult * c.damageScale * DefenseScale(c, TargetDefense(world, data, *target, fromHex)) * dt;
             attackerFaction[target->entity] = faction.id;
             division.lastCombatTime = world.time;
             if (!division.hasTarget)

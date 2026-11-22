@@ -44,15 +44,23 @@ void DrawMenu(AppState& app, const GameData& data)
     }
     y += 64.0f;
 
+    TextDraw("Match length", static_cast<int>(cx) - 300, static_cast<int>(y), 22, LIGHTGRAY);
+    y += 32.0f;
+    DrawMatchLengthPicker(app, cx - 300.0f, y, 600.0f);
+    y += 60.0f;
+
     if (UiButton({ cx - 300.0f, y, 600.0f, 40.0f }, app.botBattle ? "[x] Bot battle (AI vs AI, spectate)" : "[ ] Bot battle (AI vs AI, spectate)", true, app.botBattle))
     {
         app.botBattle = !app.botBattle;
     }
     y += 52.0f;
+    y += DrawRlToggle(app, cx - 300.0f, y, 600.0f);
 
     if (UiButton({ cx - 300.0f, y, 600.0f, 50.0f }, "Start Campaign", !app.profile.templates.empty()))
     {
-        StartMatch(app, data, CampaignSetup(data, app.stage, app.difficulty, app.profile.templates, app.botBattle));
+        MatchSetup setup = CampaignSetup(data, app.stage, app.difficulty, app.profile.templates, app.botBattle);
+        ApplyMatchLength(app, setup);
+        StartMatch(app, data, setup);
     }
     y += 60.0f;
     if (UiButton({ cx - 300.0f, y, 296.0f, 44.0f }, "Sandbox"))
@@ -97,4 +105,45 @@ void DrawResult(AppState& app)
         app.stage = std::min(app.stage, app.profile.clearedStages);
         app.screen = Screen::Menu;
     }
+}
+
+void DrawMatchLengthPicker(AppState& app, float x, float y, float width)
+{
+    const float buttonWidth = width / static_cast<float>(MatchLengthMinutes.size()) - 8.0f;
+    for (std::size_t i = 0; i < MatchLengthMinutes.size(); ++i)
+    {
+        const int minutes = MatchLengthMinutes[i];
+        const std::string label = minutes == 0 ? "Default" : (minutes < 0 ? "Unlimited" : std::to_string(minutes) + " min");
+        const Rectangle rect = { x + static_cast<float>(i) * (buttonWidth + 8.0f), y, buttonWidth, 44.0f };
+        if (UiButton(rect, label.c_str(), true, app.matchLength == static_cast<int>(i)))
+        {
+            app.matchLength = static_cast<int>(i);
+        }
+    }
+}
+
+void ApplyMatchLength(const AppState& app, MatchSetup& setup)
+{
+    const int minutes = MatchLengthMinutes[static_cast<std::size_t>(app.matchLength)];
+    if (minutes != 0)
+    {
+        setup.matchSeconds = minutes < 0 ? 0.0f : static_cast<float>(minutes) * 60.0f;
+    }
+}
+
+float DrawRlToggle(AppState& app, float x, float y, float width)
+{
+#ifdef MINRTS_TORCH
+    if (UiButton({ x, y, width, 40.0f }, app.rlAi ? "[x] RL AI (data/ai/rl_policy.pt)" : "[ ] RL AI (data/ai/rl_policy.pt)", true, app.rlAi))
+    {
+        app.rlAi = !app.rlAi;
+    }
+    return 52.0f;
+#else
+    (void)app;
+    (void)x;
+    (void)y;
+    (void)width;
+    return 0.0f;
+#endif
 }

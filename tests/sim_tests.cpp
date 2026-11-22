@@ -1,4 +1,5 @@
 #include "ai/ai.hpp"
+#include "ai/deeplearn/rl_features.hpp"
 #include "core/lua_loader.hpp"
 #include "core/phrases.hpp"
 #include "core/templates.hpp"
@@ -541,13 +542,37 @@ namespace
         setFrontage(player, AiFaction, 30.0f);
         Check(Near(playerUnit.frontageKm, controlled.config.frontageMaxKm), "cannot change enemy frontage");
 
+        // 대대 AI가 담당 범위 안의 적에게 다가가 사거리에 들면 쏜다.
+        const auto runBattle = [&](float seconds)
+        {
+            for (const auto [entity, unit] : world.registry.view<Division>().each())
+            {
+                unit.hp = unit.maxHp;
+            }
+            ResetBattalionPositions(world, player);
+            ResetBattalionPositions(world, enemy);
+            for (float t = 0.0f; t < seconds; t += 0.1f)
+            {
+                UpdateBattalionAI(world, controlled, 0.1f);
+                UpdateCombat(world, controlled, 0.1f);
+            }
+        };
         setFrontage(enemy, AiFaction, 30.0f);
         setFrontage(player, PlayerFaction, 30.0f);
-        tickDamage();
-        Check(!playerUnit.hasTarget && Near(enemyUnit.hp, enemyUnit.maxHp), "30 km frontage does not engage an enemy 50 km away");
+        runBattle(60.0f);
+        Check(Near(enemyUnit.hp, enemyUnit.maxHp) && Near(playerUnit.hp, playerUnit.maxHp), "30 km frontage does not engage an enemy 50 km away");
+        for (const BattalionUnit& unit : playerUnit.units)
+        {
+            Check(Distance(unit.position, center) <= 30.0f + 1e-3f, "battalions stay inside the division zone");
+        }
         setFrontage(player, PlayerFaction, 70.0f);
-        tickDamage();
-        Check(playerUnit.hasTarget && enemyUnit.hp < enemyUnit.maxHp, "70 km frontage engages an enemy 50 km away");
+        runBattle(60.0f);
+        Check(enemyUnit.hp < enemyUnit.maxHp, "70 km frontage engages an enemy 50 km away");
+        Check(playerUnit.units.front().task == BattalionTask::Engage, "battalion AI picks engage for a threat in its zone");
+        for (const BattalionUnit& unit : playerUnit.units)
+        {
+            Check(Distance(unit.position, center) <= 70.0f + 1e-3f, "engaging battalions stay inside the division zone");
+        }
 
         const int next = HexIndex(world.map, { 3, 3 });
         world.registry.emplace<MovePath>(player, std::vector<int>{ next });
@@ -559,6 +584,8 @@ namespace
         world.registry.get<Position>(player).value = center;
 
         world.registry.get<Position>(enemy).value = { center.x + 20.0f, center.y };
+        ResetBattalionPositions(world, player);
+        ResetBattalionPositions(world, enemy);
         const float narrowTaken = tickDamage();
         const float narrowDealt = enemyUnit.maxHp - enemyUnit.hp;
         setFrontage(player, PlayerFaction, 70.0f);
@@ -567,8 +594,9 @@ namespace
         Check(narrowDealt > wideDealt && wideDealt > 0.0f, "wider frontage lowers attack");
         Check(wideTaken > narrowTaken && narrowTaken > 0.0f, "wider frontage increases damage taken");
 
-        world.registry.get<Position>(enemy).value = distantEnemy;
-        const entt::entity secondEnemy = SpawnDivision(world, controlled, AiFaction, infantry, { center.x - 50.0f, center.y });
+        world.registry.get<Position>(enemy).value = { center.x + 15.0f, center.y };
+        ResetBattalionPositions(world, enemy);
+        const entt::entity secondEnemy = SpawnDivision(world, controlled, AiFaction, infantry, { center.x - 15.0f, center.y });
         setFrontage(enemy, AiFaction, 70.0f);
         setFrontage(secondEnemy, AiFaction, 70.0f);
         world.registry.emplace<Retreating>(secondEnemy);
@@ -578,7 +606,7 @@ namespace
         const float secondDamage = tickDamage();
         world.registry.remove<Retreating>(enemy);
         Check(firstDamage > 0.0f && secondDamage > 0.0f && Near(tickDamage(), firstDamage + secondDamage),
-              "both attackers damage a 70 km defender in the same tick");
+              "both attackers damage one defender in the same tick");
     }
 
     void TestPhrases(const std::string& dataDir)
@@ -717,6 +745,108 @@ namespace
         red.attackPosition = red.objectives.front().position;
         Check(ChooseDivisionAction(world, red, AiFaction, hurt).action == AiAction::Attack, "utility: attack posture -> attack");
     }
+    void TestRlFeatures(const GameData& data)
+    {
+        World world;
+        InitWorld(world, data, CampaignSetup(data, 0, 1, data.defaultTemplates, false), 42);
+        AiBlackboard board;
+        BuildBlackboard(world, data, AiFaction, board);
+        board.posture = AiPosture::Attack;
+        Check(!board.objectives.empty(), "RL fixture has an enemy objective");
+        if (!board.objectives.empty())
+        {
+            board.attackHex = board.objectives.front().hex;
+        }
+
+        entt::entity ownDivision = entt::null;
+        for (const auto [entity, division, faction] : world.registry.view<Division, Faction>().each())
+        {
+            if (faction.id == AiFaction)
+            {
+                ownDivision = entity;
+                break;
+            }
+        }
+        Check(ownDivision != entt::null, "RL fixture has an own division");
+        if (ownDivision == entt::null)
+        {
+            return;
+        }
+
+        const auto candidates = ListDivisionCandidates(world, board, AiFaction, ownDivision);
+        Check(!candidates.empty() && candidates.front().action == AiAction::Hold, "RL candidate zero is Hold");
+        if (!candidates.empty())
+        {
+            const AiDecision& best = candidates[BestCandidate(candidates)];
+            const AiDecision chosen = ChooseDivisionAction(world, board, AiFaction, ownDivision);
+            Check(best.action == chosen.action && best.hex == chosen.hex && Near(best.score, chosen.score)
+                  && best.threatIndex == chosen.threatIndex, "RL best candidate matches utility AI");
+        }
+
+        RlGlobal global{};
+        BuildGlobalFeatures(world, data, board, AiFaction, global);
+        Check(global.size() == RlGlobalFeatures && std::all_of(global.begin(), global.end(), [](float value)
+        {
+            return std::isfinite(value) && value >= -5.0f && value <= 5.0f;
+        }), "RL global features have the expected size and range");
+
+        std::vector<RlInput> inputs;
+        BuildCandidateFeatures(world, data, board, AiFaction, ownDivision, global, candidates, inputs);
+        Check(inputs.size() == candidates.size(), "RL features include one input per candidate");
+        for (const RlInput& input : inputs)
+        {
+            Check(input.size() == RlInputFeatures && std::all_of(input.begin(), input.end(), [](float value)
+            {
+                return std::isfinite(value);
+            }), "RL input has the expected size and finite features");
+            Check(std::equal(global.begin(), global.end(), input.begin()), "RL input starts with global features");
+        }
+        if (!inputs.empty() && inputs.size() == candidates.size())
+        {
+            constexpr int candidateOffset = RlGlobalFeatures + RlDivisionFeatures;
+            Check(Near(inputs.front()[candidateOffset], 1.0f) && Near(inputs.front()[candidateOffset + 6], 0.0f),
+                  "RL Hold encodes its action and zero target distance");
+            Check(Near(inputs[BestCandidate(candidates)][candidateOffset + 14], 1.0f), "RL best candidate is marked");
+        }
+
+        const RlRewardSnapshot before = TakeRewardSnapshot(world, AiFaction);
+        ++world.factions[AiFaction].ownedHexes;
+        Check(ComputeReward(before, TakeRewardSnapshot(world, AiFaction), world, AiFaction) > 0.0f,
+              "RL reward increases when own territory grows");
+        --world.factions[AiFaction].ownedHexes;
+
+        for (const auto [entity, base, faction] : world.registry.view<Base, Faction>().each())
+        {
+            if (faction.id == PlayerFaction)
+            {
+                faction.id = AiFaction;
+                break;
+            }
+        }
+        const RlRewardSnapshot captured = TakeRewardSnapshot(world, AiFaction);
+        Check(ComputeReward(before, captured, world, AiFaction) > 0.0f, "RL reward increases when enemy loses a base");
+        Check(ComputeReward(captured, before, world, AiFaction) < 0.0f, "RL reward decreases when own base is lost");
+
+        world.over = true;
+        world.winner = AiFaction;
+        Check(ComputeReward(captured, captured, world, AiFaction) > 0.0f, "RL terminal win is rewarded");
+        Check(ComputeReward(captured, captured, world, PlayerFaction) < 0.0f, "RL terminal loss is penalized");
+    }
+
+    void TestMatchLength(const GameData& data)
+    {
+        MatchSetup setup = CampaignSetup(data, 0, 1, data.defaultTemplates, true);
+        setup.matchSeconds = 0.0f;   // 무제한
+        World world;
+        InitWorld(world, data, setup, 5);
+        world.time = 100000.0f;
+        CheckVictory(world, data);
+        Check(!world.over, "unlimited match never ends on time");
+        world.matchSeconds = 60.0f;
+        CheckVictory(world, data);
+        Check(world.over, "timed match ends at its limit");
+    }
+
     void TestProfiler(const GameData& data)
     {
         Profiler off;
@@ -768,7 +898,9 @@ int main(int argc, char** argv)
     TestPhrases(dataDir);
     TestEconomy(data);
     TestAi(data);
+    TestRlFeatures(data);
     TestProfiler(data);
+    TestMatchLength(data);
 
     std::cout << (g_failures == 0 ? "ALL PASS" : "FAILED") << " (" << g_failures << " failures)\n";
     return g_failures == 0 ? 0 : 1;

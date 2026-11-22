@@ -19,10 +19,25 @@ struct Faction
     int id = 0;
 };
 
+// 대대 AI 임무 (src/ai/battalion_ai.cpp).
+enum class BattalionTask : std::uint8_t { Hold, Cover, Engage, Support, Screen, Withdraw };
+constexpr const char* BattalionTaskNames[] = { "hold", "cover", "engage", "support", "screen", "withdraw" };
+
+// 사단 안의 대대 하나. 사단 담당 범위(frontageKm 반경) 안에서 스스로 위치를 고른다.
+// 피해와 hp는 사단 단위로 합쳐서 계산한다.
+struct BattalionUnit
+{
+    Vec2 position;                 // 월드 km
+    Vec2 goal;                     // AI가 고른 목표 위치
+    BattalionTask task = BattalionTask::Hold;
+    float thinkTimer = 0.0f;       // 다음 판단까지 남은 초
+};
+
 struct Division
 {
     std::string name;
     std::vector<int> battalions;   // GameData::battalions 인덱스
+    std::vector<BattalionUnit> units;   // battalions와 같은 순서
     float hp = 0.0f;
     float maxHp = 0.0f;
     float speed = 0.0f;            // 가장 느린 대대, km/초

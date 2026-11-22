@@ -232,4 +232,14 @@ return {
     ["Save"] = "저장",
     ["F3 profiler"] = "F3 프로파일러",
     ["City"] = "도시",
+    -- 경기 시간
+    ["Match length"] = "경기 시간",
+    ["Default"] = "기본",
+    ["Unlimited"] = "무제한",
+    ["min"] = "분",
+    ["Elapsed"] = "경과 시간",
+    -- RL AI
+    ["[x] RL AI (data/ai/rl_policy.pt)"] = "[x] 학습 AI (RL, data/ai/rl_policy.pt)",
+    ["[ ] RL AI (data/ai/rl_policy.pt)"] = "[ ] 학습 AI (RL, data/ai/rl_policy.pt)",
+    ["RL AI on"] = "학습 AI(RL) 적용",
 }

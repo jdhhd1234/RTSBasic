@@ -60,7 +60,9 @@ add_library(minrts_core STATIC
     src/ai/blackboard.cpp
     src/ai/htn.cpp
     src/ai/utility.cpp
-    src/ai/ai_system.cpp)
+    src/ai/battalion_ai.cpp
+    src/ai/ai_system.cpp
+    src/ai/deeplearn/rl_features.cpp)
 target_include_directories(minrts_core PUBLIC src)
 target_link_libraries(minrts_core PUBLIC EnTT::EnTT lua_static PRIVATE nlohmann_json::nlohmann_json)
 
@@ -95,3 +97,42 @@ foreach(target minrts minrts_tests minrts_profile)
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/data $<TARGET_FILE_DIR:${target}>/data)
 endforeach()
+
+option(MINRTS_TORCH "LibTorch RL AI (src/ai/deeplearn)" OFF)
+if(MINRTS_TORCH)
+    find_package(Torch REQUIRED)
+    find_package(Threads REQUIRED)
+
+    add_library(minrts_rl STATIC
+        src/ai/deeplearn/rl_policy.cpp
+        src/ai/deeplearn/rl_agent.cpp)
+    target_include_directories(minrts_rl SYSTEM PUBLIC ${TORCH_INCLUDE_DIRS})
+    target_link_libraries(minrts_rl PUBLIC minrts_core ${TORCH_LIBRARIES})
+
+    add_executable(minrts_train src/ai/deeplearn/train_main.cpp)
+    target_link_libraries(minrts_train PRIVATE minrts_rl Threads::Threads)
+    target_link_libraries(minrts PRIVATE minrts_rl)
+    target_compile_definitions(minrts PRIVATE MINRTS_TORCH)
+
+    if(MSVC)
+        foreach(target minrts_rl minrts_train)
+            target_compile_options(${target} PRIVATE /utf-8 /W4 /permissive- /bigobj)
+            # MSVC reports LibTorch conversions in the STL and C4702 during code generation.
+            target_compile_options(${target} PRIVATE /wd4267 /wd4702)
+        endforeach()
+    endif()
+
+    add_custom_command(TARGET minrts_train POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/data" "$<TARGET_FILE_DIR:minrts_train>/data"
+        VERBATIM)
+    if(WIN32)
+        file(GLOB torch_dlls CONFIGURE_DEPENDS "${TORCH_INSTALL_PREFIX}/lib/*.dll")
+        if(torch_dlls)
+            foreach(target minrts_train minrts)
+                add_custom_command(TARGET ${target} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${torch_dlls} "$<TARGET_FILE_DIR:${target}>"
+                    VERBATIM)
+            endforeach()
+        endif()
+    endif()
+endif()

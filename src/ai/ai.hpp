@@ -18,8 +18,23 @@ void BuildBlackboard(const World& world, const GameData& data, int self, AiBlack
 // htn.cpp: 루트 과업 "총사령부 지휘"를 원시 과업 목록으로 분해한다.
 std::vector<AiTask> PlanCommand(const AiBlackboard& board, const DifficultyDef& difficulty);
 
-// utility.cpp: 사단 하나의 행동을 점수로 고른다.
+// utility.cpp: 사단 하나의 행동 후보 전부와 점수. 0번은 항상 Hold. RL은 이 목록 안에서만 고른다.
+std::vector<AiDecision> ListDivisionCandidates(const World& world, const AiBlackboard& board, int self, entt::entity entity);
+
+// utility.cpp: 점수 최고 후보 인덱스 (동점이면 앞쪽).
+std::size_t BestCandidate(const std::vector<AiDecision>& candidates);
+
+// utility.cpp: 사단 하나의 행동을 점수로 고른다 (= 후보 중 최고점).
 AiDecision ChooseDivisionAction(const World& world, const AiBlackboard& board, int self, entt::entity entity);
+
+// battalion_ai.cpp: 대대마다 사단 담당 범위 안에서 위치를 고르고 움직인다 (매 틱).
+void UpdateBattalionAI(World& world, const GameData& data, float dt);
+
+// battalion_ai.cpp: 사단이 바라보는 방향 (가장 가까운 적 사단 쪽, 없으면 지도 중앙). 단위 벡터.
+Vec2 DivisionFacing(const World& world, Vec2 position, int faction);
+
+// battalion_ai.cpp: 대대를 전선 배치 슬롯에 바로 놓는다 (생성, 순간 이동 시).
+void ResetBattalionPositions(World& world, entt::entity division);
 
 // utility.cpp: 사단이 지금 향하는 헥스 (이동 중이 아니면 현재 헥스).
 int CurrentGoal(const World& world, entt::entity entity);

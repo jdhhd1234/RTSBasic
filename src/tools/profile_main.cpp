@@ -79,6 +79,7 @@ int main(int argc, char** argv)
     {
         setup.matchSeconds = seconds;
     }
+    const float runSeconds = setup.matchSeconds > 0.0f ? setup.matchSeconds : 1200.0f;   // 무제한 시나리오도 끝은 있어야 한다
 
     World world;
     InitWorld(world, scenario.data, setup, seed);
@@ -86,7 +87,7 @@ int main(int argc, char** argv)
 
     const float dt = 1.0f / scenario.data.config.tickHz;
     const auto start = std::chrono::steady_clock::now();
-    while (!world.over && world.time < setup.matchSeconds + dt)
+    while (!world.over && world.time < runSeconds + dt)
     {
         StepWorld(world, scenario.data, dt);
     }
