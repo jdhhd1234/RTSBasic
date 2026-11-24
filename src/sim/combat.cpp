@@ -12,7 +12,6 @@
 namespace
 {
     // 인접 헥스 중심 거리는 정확히 20km라서 부동소수 오차를 흡수한다.
-    constexpr float RangeTolerance = 0.5f;
     
     float TargetDefense(const World& world, const GameData& data, const CombatTarget& target, int attackerHex)
     {
@@ -36,10 +35,11 @@ namespace
         return defense;
     }
 
-    const CombatTarget* NearestEnemy(const std::vector<CombatTarget>& targets, int faction, Vec2 position, float range, bool divisionsOnly)
+    // maxDistance: 사거리 + ai_tuning.range_tolerance_km
+    const CombatTarget* NearestEnemy(const std::vector<CombatTarget>& targets, int faction, Vec2 position, float maxDistance, bool divisionsOnly)
     {
         const CombatTarget* best = nullptr;
-        float bestDistance = range + RangeTolerance;
+        float bestDistance = maxDistance;
         for (const CombatTarget& target : targets)
         {
             if (target.faction == faction || (divisionsOnly && target.isBase))
@@ -132,7 +132,7 @@ void UpdateCombat(World& world, const GameData& data, float dt)
             const int fromHex = HexAt(world, from);
             const Terrain fromTerrain = world.map.hexes[static_cast<std::size_t>(fromHex)].terrain;
             const float range = def.range * WeatherMultiplier(weather.range, division.effects);
-            const CombatTarget* target = NearestEnemy(targets, faction.id, from, range, false);
+            const CombatTarget* target = NearestEnemy(targets, faction.id, from, range + data.ai.rangeToleranceKm, false);
             if (target == nullptr)
             {
                 continue;
@@ -167,7 +167,7 @@ void UpdateCombat(World& world, const GameData& data, float dt)
     // 기지 반격: 교전 반경 안의 가장 가까운 적 사단.
     for (const auto [entity, base, position, faction] : world.registry.view<Base, Position, Faction>().each())
     {
-        const CombatTarget* target = NearestEnemy(targets, faction.id, position.value, c.engageKm, true);
+        const CombatTarget* target = NearestEnemy(targets, faction.id, position.value, c.engageKm + data.ai.rangeToleranceKm, true);
         if (target == nullptr)
         {
             continue;
@@ -219,7 +219,7 @@ void UpdateCombat(World& world, const GameData& data, float dt)
     // 기지: 교전 반경 안에 적 사단이 없고 이번 틱 피해가 없으면 회복
     for (const auto [entity, base, position, faction] : world.registry.view<Base, Position, Faction>().each())
     {
-        if (damage.contains(entity) || NearestEnemy(targets, faction.id, position.value, c.engageKm, true) != nullptr)
+        if (damage.contains(entity) || NearestEnemy(targets, faction.id, position.value, c.engageKm + data.ai.rangeToleranceKm, true) != nullptr)
         {
             continue;
         }

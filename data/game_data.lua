@@ -77,6 +77,27 @@ return {
         elevation_defense_max = 0.30,
     },
 
+    -- AI·전투 조정값. 빠진 키는 C++ 기본값 (src/core/game_data.hpp AiTuning).
+    ai_tuning = {
+        -- 사단 Utility AI
+        hold_score = 0.15,          -- 할 일이 마땅치 않을 때 제자리 점수
+        inertia_bonus = 0.1,        -- 지금 목표를 유지하면 더하는 점수 (흔들림 방지)
+        rally_radius_km = 60,       -- 집결지 도착 판정·집결 병력 집계 반경
+        raid_radius_km = 150,       -- 기습 후보로 볼 적 기지 거리
+        recover_health = 0.4,       -- 사단 hp 비율이 이보다 낮으면 회복 후보
+        defend_frontage_km = 20,    -- 방어 시 기본 전선에 더하는 km
+        attack_frontage_km = -10,   -- 공격·기습 시 기본 전선에 더하는 km
+        -- 대대 AI
+        battalion_think_s = 1.0,
+        rear_km = 6,                -- 지원 대대가 배치선 뒤로 물러나는 거리
+        standoff_ratio = 0.7,       -- 교전 시 적과의 거리 = 사거리 × 비율
+        artillery_ratio = 0.85,
+        cover_hp_ratio = 0.4,       -- 사단 hp가 이보다 낮으면 교전 대신 엄폐
+        screen_ratio = 0.6,         -- 정찰 대대가 나가는 거리 = 담당 전선 × 비율
+        -- 전투
+        range_tolerance_km = 0.5,   -- 사거리 판정 여유
+    },
+
     -- armor_attack: 전차·기계화 계열 공격력 배율
     terrain = {
         { id = "sea",      move = 0.0, defense = 1.00, armor_attack = 1.0, color = { 70, 110, 150 } },

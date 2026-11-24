@@ -213,6 +213,16 @@ bool LoadScenario(const std::string& path, const GameData& base, const std::vect
         setup.title = "Sandbox: " + scenario.name;
         setup.stage = -1;
         setup.matchSeconds = std::max(60.0f, LuaReadFloat(L, root, "match_seconds", base.config.matchSeconds));
+        const std::string script = LuaReadString(L, root, "script", "");
+        if (!script.empty())
+        {
+            const std::filesystem::path file = std::filesystem::path(path).parent_path() / script;
+            if (!std::filesystem::exists(file))
+            {
+                LuaFail("script not found: " + file.string());
+            }
+            setup.scriptPath = file.string();
+        }
         scenario.data.config.matchSeconds = setup.matchSeconds;
 
         ReadMap(L, root, path, scenario);

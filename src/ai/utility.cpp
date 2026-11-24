@@ -9,20 +9,17 @@
 
 namespace
 {
-    constexpr float RallyRadiusKm = 60.0f;
-    constexpr float RaidRadiusKm = 150.0f;
-    constexpr float InertiaBonus = 0.1f;   // 사단이 매 주기 목표를 바꾸며 흔들리지 않도록
-
     float Proximity(float distanceKm, float scaleKm)
     {
         return 1.0f / (1.0f + distanceKm / scaleKm);
     }
 
-    void Consider(std::vector<AiDecision>& candidates, AiAction action, int hex, float score, int currentGoal, int threatIndex = -1)
+    void Consider(std::vector<AiDecision>& candidates, float inertiaBonus, AiAction action, int hex, float score, int currentGoal,
+                  int threatIndex = -1)
     {
         if (hex >= 0 && hex == currentGoal)
         {
-            score += InertiaBonus;
+            score += inertiaBonus;   // 사단이 매 주기 목표를 바꾸며 흔들리지 않도록
         }
         candidates.push_back({ .action = action, .hex = hex, .score = score, .threatIndex = threatIndex });
     }
@@ -40,8 +37,10 @@ int CurrentGoal(const World& world, entt::entity entity)
 }
 
 
-std::vector<AiDecision> ListDivisionCandidates(const World& world, const AiBlackboard& board, int self, entt::entity entity)
+std::vector<AiDecision> ListDivisionCandidates(const World& world, const GameData& data, const AiBlackboard& board, int self,
+                                               entt::entity entity)
 {
+    const AiTuning& tuning = data.ai;
     const Division& division = world.registry.get<Division>(entity);
     const Vec2 position = world.registry.get<Position>(entity).value;
     const float health = division.maxHp > 0.0f ? division.hp / division.maxHp : 0.0f;
@@ -49,7 +48,7 @@ std::vector<AiDecision> ListDivisionCandidates(const World& world, const AiBlack
 
     // 0번은 항상 Hold. 기본 점수: 할 일이 마땅치 않으면 제자리
     std::vector<AiDecision> candidates;
-    candidates.push_back({ .action = AiAction::Hold, .hex = -1, .score = 0.15f });
+    candidates.push_back({ .action = AiAction::Hold, .hex = -1, .score = tuning.holdScore });
 
     // 방어: 위협 크기 × 거리 × HTN 지시 여부 × 아직 부족한 병력
     for (int i = 0; i < static_cast<int>(board.threats.size()); ++i)
@@ -60,32 +59,32 @@ std::vector<AiDecision> ListDivisionCandidates(const World& world, const AiBlack
         const float urgency = std::clamp(threat.enemyStrength / (threat.ownStrength + 1.0f), 0.0f, 1.0f);
         const float score = (threat.requested ? 0.9f : 0.4f) * (threat.hq ? 1.2f : 1.0f) * urgency * std::max(unmet, 0.2f)
             * Proximity(Distance(position, threat.position), 200.0f) * 2.0f;
-        Consider(candidates, AiAction::Defend, threat.baseHex, score, goal, i);
+        Consider(candidates, tuning.inertiaBonus, AiAction::Defend, threat.baseHex, score, goal, i);
     }
 
     // 공격 / 집결: HTN 태세를 따른다
     if (board.posture == AiPosture::Attack && board.attackHex >= 0)
     {
-        Consider(candidates, AiAction::Attack, board.attackHex, 0.7f * (0.4f + 0.6f * health), goal);
+        Consider(candidates, tuning.inertiaBonus, AiAction::Attack, board.attackHex, 0.7f * (0.4f + 0.6f * health), goal);
     }
     if (board.posture == AiPosture::Regroup && board.rallyHex >= 0)
     {
-        const bool there = Distance(position, board.rallyPosition) <= RallyRadiusKm;
-        Consider(candidates, AiAction::Rally, board.rallyHex, there ? 0.1f : 0.55f, goal);
+        const bool there = Distance(position, board.rallyPosition) <= tuning.rallyRadiusKm;
+        Consider(candidates, tuning.inertiaBonus, AiAction::Rally, board.rallyHex, there ? 0.1f : 0.55f, goal);
     }
 
     // 기습: 가까운 적 기지가 거의 비어 있으면 태세와 관계없이 점령하러 간다
     for (const AiObjective& objective : board.objectives)
     {
         const float distance = Distance(position, objective.position);
-        if (distance <= RaidRadiusKm && objective.guardStrength < division.hp * 0.5f)
+        if (distance <= tuning.raidRadiusKm && objective.guardStrength < division.hp * 0.5f)
         {
-            Consider(candidates, AiAction::Raid, objective.hex, 0.6f * health * Proximity(distance, 60.0f) * 1.6f, goal);
+            Consider(candidates, tuning.inertiaBonus, AiAction::Raid, objective.hex, 0.6f * health * Proximity(distance, 60.0f) * 1.6f, goal);
         }
     }
 
     // 회복: 많이 다쳤으면 가장 가까운 아군 기지로
-    if (health < 0.4f)
+    if (health < tuning.recoverHealth)
     {
         int nearestHex = -1;
         float nearest = std::numeric_limits<float>::max();
@@ -100,7 +99,7 @@ std::vector<AiDecision> ListDivisionCandidates(const World& world, const AiBlack
         }
         if (nearestHex >= 0)
         {
-            Consider(candidates, AiAction::Recover, nearestHex, (1.0f - health) * 1.1f, goal);
+            Consider(candidates, tuning.inertiaBonus, AiAction::Recover, nearestHex, (1.0f - health) * 1.1f, goal);
         }
     }
     return candidates;
@@ -119,8 +118,8 @@ std::size_t BestCandidate(const std::vector<AiDecision>& candidates)
     return best;
 }
 
-AiDecision ChooseDivisionAction(const World& world, const AiBlackboard& board, int self, entt::entity entity)
+AiDecision ChooseDivisionAction(const World& world, const GameData& data, const AiBlackboard& board, int self, entt::entity entity)
 {
-    const std::vector<AiDecision> candidates = ListDivisionCandidates(world, board, self, entity);
+    const std::vector<AiDecision> candidates = ListDivisionCandidates(world, data, board, self, entity);
     return candidates[BestCandidate(candidates)];
 }

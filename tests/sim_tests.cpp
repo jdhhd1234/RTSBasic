@@ -738,12 +738,12 @@ namespace
         }
         Division& division = world.registry.get<Division>(hurt);
         division.hp = division.maxHp * 0.15f;
-        Check(ChooseDivisionAction(world, red, AiFaction, hurt).action == AiAction::Recover, "utility: badly hurt -> recover");
+        Check(ChooseDivisionAction(world, data, red, AiFaction, hurt).action == AiAction::Recover, "utility: badly hurt -> recover");
         division.hp = division.maxHp;
         red.posture = AiPosture::Attack;
         red.attackHex = red.objectives.front().hex;
         red.attackPosition = red.objectives.front().position;
-        Check(ChooseDivisionAction(world, red, AiFaction, hurt).action == AiAction::Attack, "utility: attack posture -> attack");
+        Check(ChooseDivisionAction(world, data, red, AiFaction, hurt).action == AiAction::Attack, "utility: attack posture -> attack");
     }
     void TestRlFeatures(const GameData& data)
     {
@@ -773,12 +773,12 @@ namespace
             return;
         }
 
-        const auto candidates = ListDivisionCandidates(world, board, AiFaction, ownDivision);
+        const auto candidates = ListDivisionCandidates(world, data, board, AiFaction, ownDivision);
         Check(!candidates.empty() && candidates.front().action == AiAction::Hold, "RL candidate zero is Hold");
         if (!candidates.empty())
         {
             const AiDecision& best = candidates[BestCandidate(candidates)];
-            const AiDecision chosen = ChooseDivisionAction(world, board, AiFaction, ownDivision);
+            const AiDecision chosen = ChooseDivisionAction(world, data, board, AiFaction, ownDivision);
             Check(best.action == chosen.action && best.hex == chosen.hex && Near(best.score, chosen.score)
                   && best.threatIndex == chosen.threatIndex, "RL best candidate matches utility AI");
         }
@@ -831,6 +831,63 @@ namespace
         world.winner = AiFaction;
         Check(ComputeReward(captured, captured, world, AiFaction) > 0.0f, "RL terminal win is rewarded");
         Check(ComputeReward(captured, captured, world, PlayerFaction) < 0.0f, "RL terminal loss is penalized");
+    }
+
+    // 경기 중 Lua 스크립트: 읽기는 되고 쓰기·무한 루프는 오류로 끊긴다.
+    void TestMatchScript(const GameData& data)
+    {
+        const std::filesystem::path dir = std::filesystem::temp_directory_path() / "minrts_script_test";
+        std::filesystem::create_directories(dir);
+        const auto run = [&](const std::string& name, const std::string& code)
+        {
+            const std::filesystem::path file = dir / (name + ".lua");
+            std::ofstream(file) << code;
+            MatchSetup setup = CampaignSetup(data, 0, 1, data.defaultTemplates, true);
+            setup.scriptPath = file.string();
+            World world;
+            InitWorld(world, data, setup, 3);
+            const float dt = 1.0f / data.config.tickHz;
+            for (int i = 0; i < static_cast<int>(2.5f * data.config.tickHz); ++i)
+            {
+                StepWorld(world, data, dt);
+            }
+            std::vector<std::string> lines;
+            for (const GameEvent& event : world.events)
+            {
+                lines.push_back(event.text);
+            }
+            return std::pair{ std::move(lines), world.script.Loaded() };
+        };
+        const auto has = [](const std::vector<std::string>& lines, const std::string& text)
+        {
+            return std::any_of(lines.begin(), lines.end(), [&](const std::string& line) { return line.find(text) != std::string::npos; });
+        };
+
+        const auto [readLines, readLoaded] = run("read", R"(
+            interval = 1
+            function on_start(game) print("start", #game.factions, game.factions[2].id) end
+            function on_tick(game)
+                local n = 0
+                for _, d in ipairs(game.divisions) do n = n + #d.battalions end
+                local keys = 0
+                for _ in pairs(game.factions[1].stock) do keys = keys + 1 end
+                print("tick", game.time > 0, n > 0, keys)
+            end)");
+        Check(has(readLines, "[script] start\t2\t1"), "script: on_start reads factions");
+        Check(has(readLines, "[script] tick\ttrue\ttrue\t6"), "script: on_tick reads divisions, battalions and stock via pairs");
+        Check(readLoaded, "script: stays loaded without errors");
+
+        const auto [writeLines, writeLoaded] = run("write", "function on_tick(game) game.time = 5 end");
+        Check(has(writeLines, "game is read-only") && !writeLoaded, "script: writing game is an error and stops the script");
+        const auto [nestedLines, nestedLoaded] = run("nested", "function on_tick(game) game.factions[1].manpower = 1e9 end");
+        Check(has(nestedLines, "game is read-only") && !nestedLoaded, "script: nested tables are read-only too");
+        const auto [rawLines, rawLoaded] = run("raw", "function on_tick(game) rawset(game, 'time', 1) end");
+        Check(has(rawLines, "Script error") && !rawLoaded, "script: rawset is not available");
+        const auto [loopLines, loopLoaded] = run("loop", "function on_tick(game) while true do end end");
+        Check(has(loopLines, "took too long") && !loopLoaded, "script: infinite loop is cut off");
+        std::filesystem::remove_all(dir);
+
+        Check(data.ai.raidRadiusKm == 150.0f && data.ai.standoffRatio == 0.7f, "ai_tuning: read from game_data.lua");
     }
 
     void TestMatchLength(const GameData& data)
@@ -901,6 +958,7 @@ int main(int argc, char** argv)
     TestRlFeatures(data);
     TestProfiler(data);
     TestMatchLength(data);
+    TestMatchScript(data);
 
     std::cout << (g_failures == 0 ? "ALL PASS" : "FAILED") << " (" << g_failures << " failures)\n";
     return g_failures == 0 ? 0 : 1;

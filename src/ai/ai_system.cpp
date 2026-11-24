@@ -143,7 +143,7 @@ void UpdateAI(World& world, const GameData& data, float dt)
             }
             for (const entt::entity entity : divisions)
             {
-                const std::vector<AiDecision> candidates = ListDivisionCandidates(world, board, self, entity);
+                const std::vector<AiDecision> candidates = ListDivisionCandidates(world, data, board, self, entity);
                 const std::size_t chosen = state.policy.chooseDivision
                     ? std::min(state.policy.chooseDivision(world, board, self, entity, candidates), candidates.size() - 1)
                     : BestCandidate(candidates);
@@ -152,14 +152,14 @@ void UpdateAI(World& world, const GameData& data, float dt)
                 const Division& division = world.registry.get<Division>(entity);
                 const GameConfig& c = data.config;
                 float frontageKm = c.frontageDefaultKm;
-                // shortcut: 행동별 고정 조정폭, 지형·위협에 따른 전선 계획을 넣을 때 개선.
+                // shortcut: 행동별 고정 조정폭(ai_tuning), 지형·위협에 따른 전선 계획을 넣을 때 개선.
                 if (decision.action == AiAction::Defend)
                 {
-                    frontageKm += 20.0f;
+                    frontageKm += data.ai.defendFrontageKm;
                 }
                 else if (decision.action == AiAction::Attack || decision.action == AiAction::Raid)
                 {
-                    frontageKm -= 10.0f;
+                    frontageKm += data.ai.attackFrontageKm;
                 }
                 frontageKm = std::clamp(frontageKm, c.frontageMinKm, c.frontageMaxKm);
                 if (frontageKm != division.frontageKm)

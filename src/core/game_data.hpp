@@ -210,9 +210,32 @@ struct GameConfig
     float elevationDefenseMax = 0.3f;
 };
 
+// AI·전투 조정값 (game_data.lua의 ai_tuning). 계산식은 C++, 숫자만 Lua.
+struct AiTuning
+{
+    // 사단 Utility AI
+    float holdScore = 0.15f;          // 할 일이 마땅치 않을 때 제자리 점수
+    float inertiaBonus = 0.1f;        // 지금 목표를 유지하면 더하는 점수 (흔들림 방지)
+    float rallyRadiusKm = 60.0f;      // 집결지 도착 판정·집결 병력 집계 반경
+    float raidRadiusKm = 150.0f;      // 기습 후보로 볼 적 기지 거리
+    float recoverHealth = 0.4f;       // 사단 hp 비율이 이보다 낮으면 회복 후보
+    float defendFrontageKm = 20.0f;   // 방어 시 기본 전선에 더하는 km
+    float attackFrontageKm = -10.0f;  // 공격·기습 시 기본 전선에 더하는 km
+    // 대대 AI
+    float battalionThinkSeconds = 1.0f;
+    float rearKm = 6.0f;              // 지원 대대가 배치선 뒤로 물러나는 거리
+    float standoffRatio = 0.7f;       // 교전 시 적과의 거리 = 사거리 × 비율
+    float artilleryRatio = 0.85f;
+    float coverHpRatio = 0.4f;        // 사단 hp가 이보다 낮으면 교전 대신 엄폐
+    float screenRatio = 0.6f;         // 정찰 대대가 나가는 거리 = 담당 전선 × 비율
+    // 전투
+    float rangeToleranceKm = 0.5f;    // 사거리 판정 여유
+};
+
 struct GameData
 {
     GameConfig config;
+    AiTuning ai;
     std::vector<BattalionDef> battalions;
     std::vector<FactoryDef> factories;
     std::vector<MineRuleDef> mineRules;

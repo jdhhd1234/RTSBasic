@@ -6,6 +6,22 @@ A scenario returns one table. All fields are optional unless marked.
 
   name, description        text shown in the menu
   match_seconds            match length (default 1200, min 60)
+  script = "scripts/report.lua"   -- optional Lua run during the match (path relative to this file)
+      The script can READ the game state but cannot change it. Lua cannot write C++ values.
+      interval = 5                   -- seconds between on_tick calls (default 1, min 0.1)
+      function on_start(game) end    -- once after the match starts
+      function on_tick(game) end     -- every interval
+      print(...)                     -- shows "[script] ..." in the event log
+      game.time, game.match_seconds, game.unlimited, game.over, game.winner, game.title
+      game.factions[1|2]   = { id, name, ai, manpower, munitions, quality, draft_pressure, upkeep,
+                               fuel_shortage, owned_hexes, factories, queue, posture, stock = { oil, iron, ... } }
+                               (factions[1] = blue id 0, factions[2] = red id 1)
+      game.divisions[i]    = { id, name, faction, x, y, hp, max_hp, frontage_km, retreating, in_combat,
+                               battalions = { { type, task, x, y }, ... } }
+      game.bases[i]        = { name, type, faction, hex, x, y, hp, max_hp }
+      game.map             = { cols, rows, width_km, height_km, hex_km }
+      Writing any game field raises "game is read-only". Only base/table/string/math libs (no io/os).
+      A script error or a call longer than 10M instructions stops the script and logs the error.
 
   map = { source = "random", seed = 1, width_km = 800, height_km = 800 }   -- 400..1200 km
   map = { source = "geojson", path = "../maps/file.geojson" }             -- path relative to this file

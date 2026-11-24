@@ -53,6 +53,7 @@ struct MatchSetup
     int mapRows = 69;
     std::vector<BasePlacement> bases;   // 비어 있으면 기본 배치
     std::array<SideSetup, FactionCount> sides;
+    std::string scriptPath;          // 경기 중 Lua 스크립트, 비어 있으면 없음 (match_script.hpp)
 };
 
 MatchSetup CampaignSetup(const GameData& data, int stage, int difficulty,

@@ -14,12 +14,6 @@
 
 namespace
 {
-    constexpr float ThinkSeconds = 1.0f;
-    constexpr float RearKm = 6.0f;              // 지원 대대가 배치선 뒤로 물러나는 거리
-    constexpr float StandoffRatio = 0.7f;       // 교전 시 적과의 거리 = 사거리 × 비율
-    constexpr float ArtilleryRatio = 0.85f;
-    constexpr float CoverHpRatio = 0.4f;        // 사단 hp가 이보다 낮으면 교전 대신 엄폐
-
     Vec2 Add(Vec2 a, Vec2 b, float scale)
     {
         return { a.x + b.x * scale, a.y + b.y * scale };
@@ -114,6 +108,7 @@ namespace
                const std::vector<std::pair<int, const BattalionUnit*>>& enemies, int faction, std::size_t index, BattalionUnit& unit)
     {
         const BattalionDef& def = data.battalions[static_cast<std::size_t>(division.battalions[index])];
+        const AiTuning& tuning = data.ai;
         const float radius = division.frontageKm;
         const Vec2 slot = Slot(center, facing, division.frontageKm, index, division.units.size());
         const BattalionUnit* threat = NearestThreat(enemies, faction, center, radius, unit.position);
@@ -127,29 +122,29 @@ namespace
         else if (def.attack <= 0.0f)
         {
             unit.task = BattalionTask::Hold;          // 비전투 지원: 배치선 뒤
-            unit.goal = Add(slot, facing, -RearKm);
+            unit.goal = Add(slot, facing, -tuning.rearKm);
         }
         else if (def.unitClass == UnitClass::Arty)
         {
             unit.task = threat != nullptr ? BattalionTask::Support : BattalionTask::Hold;
             unit.goal = threat != nullptr
-                ? Add(threat->position, Direction(threat->position, unit.position), def.range * ArtilleryRatio)
-                : Add(slot, facing, -RearKm);
+                ? Add(threat->position, Direction(threat->position, unit.position), def.range * tuning.artilleryRatio)
+                : Add(slot, facing, -tuning.rearKm);
         }
-        else if (threat != nullptr && hpRatio >= CoverHpRatio)
+        else if (threat != nullptr && hpRatio >= tuning.coverHpRatio)
         {
             unit.task = BattalionTask::Engage;
-            unit.goal = Add(threat->position, Direction(threat->position, unit.position), def.range * StandoffRatio);
+            unit.goal = Add(threat->position, Direction(threat->position, unit.position), def.range * tuning.standoffRatio);
         }
         else if (threat == nullptr && def.effect == Effect::Recon)
         {
             unit.task = BattalionTask::Screen;        // 정찰: 담당 범위 앞쪽
-            unit.goal = Add(slot, facing, radius * 0.6f);
+            unit.goal = Add(slot, facing, radius * tuning.screenRatio);
         }
         else
         {
             unit.task = BattalionTask::Cover;
-            unit.goal = BestCover(world, data, threat != nullptr ? Add(slot, facing, -RearKm) : slot);
+            unit.goal = BestCover(world, data, threat != nullptr ? Add(slot, facing, -tuning.rearKm) : slot);
         }
 
         unit.goal = ClampToZone(unit.goal, center, radius);
@@ -189,7 +184,8 @@ void ResetBattalionPositions(World& world, entt::entity entity)
         // 슬롯이 바다여도 첫 판단(Think)에서 지나갈 수 있는 목표로 바로잡는다.
         unit.position = Slot(center, facing, division.frontageKm, i, division.units.size());
         unit.goal = unit.position;
-        unit.thinkTimer = ThinkSeconds * static_cast<float>(i) / static_cast<float>(division.units.size());   // 판단 시점 분산
+        // 판단 시점 분산: 첫 판단은 1초 안에 고르게 (판단 주기 ai_tuning.battalion_think_s와 무관)
+        unit.thinkTimer = static_cast<float>(i) / static_cast<float>(division.units.size());
     }
 }
 
@@ -225,7 +221,7 @@ void UpdateBattalionAI(World& world, const GameData& data, float dt)
             unit.thinkTimer -= dt;
             if (unit.thinkTimer <= 0.0f)
             {
-                unit.thinkTimer += ThinkSeconds;
+                unit.thinkTimer += data.ai.battalionThinkSeconds;
                 Think(world, data, division, center, facing, retreating, enemies, faction.id, i, unit);
             }
 

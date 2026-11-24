@@ -3,6 +3,7 @@ return {
     name = "Dragon Valley",
     description = "Custom battalions: dragons, battle mages, trolls vs a goblin horde.",
     match_seconds = 900,
+    script = "scripts/report.lua",   -- 경기 중 읽기 전용 Lua (README.txt 참고)
 
     map = { source = "random", seed = 77, width_km = 800, height_km = 700 },
 

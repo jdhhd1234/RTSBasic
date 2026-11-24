@@ -395,6 +395,7 @@ void InitWorld(World& world, const GameData& data, const MatchSetup& setup, std:
     {
         UpdateTerritory(world, data);
     }
+    StartMatchScript(world, data, setup.scriptPath);
 }
 
 entt::entity SpawnDivision(World& world, const GameData& data, int faction, const TemplateDef& templ, Vec2 position)
@@ -540,5 +541,6 @@ void StepWorld(World& world, const GameData& data, float dt)
     { ProfileScope scope(profiler, ProfileSection::Combat); UpdateCombat(world, data, dt); }
     { ProfileScope scope(profiler, ProfileSection::Territory); UpdateTerritory(world, data); }
     { ProfileScope scope(profiler, ProfileSection::Economy); UpdateEconomy(world, data, dt); }
+    { ProfileScope scope(profiler, ProfileSection::Script); UpdateMatchScript(world, data, dt); }
     { ProfileScope scope(profiler, ProfileSection::Victory); CheckVictory(world, data); }
 }

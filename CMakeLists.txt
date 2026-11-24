@@ -57,6 +57,7 @@ add_library(minrts_core STATIC
     src/sim/economy.cpp
     src/sim/profiler.cpp
     src/sim/profile_report.cpp
+    src/sim/match_script.cpp
     src/ai/blackboard.cpp
     src/ai/htn.cpp
     src/ai/utility.cpp

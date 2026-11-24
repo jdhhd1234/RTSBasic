@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <initializer_list>
 #include <stdexcept>
 
 LuaState::LuaState()
@@ -144,6 +145,45 @@ namespace
             || !std::isfinite(c.frontageMaxKm) || !(c.frontageReferenceKm > 0.0f) || !std::isfinite(c.frontageReferenceKm))
         {
             LuaFail("config has invalid frontage values");
+        }
+    }
+
+    // 없으면 C++ 기본값. 있으면 키마다 읽고 범위를 검사한다.
+    void ReadAiTuning(lua_State* L, int root, AiTuning& a)
+    {
+        const int t = LuaPushOptionalTable(L, root, "ai_tuning");
+        if (t == 0)
+        {
+            return;
+        }
+        a.holdScore = LuaReadFloat(L, t, "hold_score", a.holdScore);
+        a.inertiaBonus = LuaReadFloat(L, t, "inertia_bonus", a.inertiaBonus);
+        a.rallyRadiusKm = LuaReadFloat(L, t, "rally_radius_km", a.rallyRadiusKm);
+        a.raidRadiusKm = LuaReadFloat(L, t, "raid_radius_km", a.raidRadiusKm);
+        a.recoverHealth = LuaReadFloat(L, t, "recover_health", a.recoverHealth);
+        a.defendFrontageKm = LuaReadFloat(L, t, "defend_frontage_km", a.defendFrontageKm);
+        a.attackFrontageKm = LuaReadFloat(L, t, "attack_frontage_km", a.attackFrontageKm);
+        a.battalionThinkSeconds = LuaReadFloat(L, t, "battalion_think_s", a.battalionThinkSeconds);
+        a.rearKm = LuaReadFloat(L, t, "rear_km", a.rearKm);
+        a.standoffRatio = LuaReadFloat(L, t, "standoff_ratio", a.standoffRatio);
+        a.artilleryRatio = LuaReadFloat(L, t, "artillery_ratio", a.artilleryRatio);
+        a.coverHpRatio = LuaReadFloat(L, t, "cover_hp_ratio", a.coverHpRatio);
+        a.screenRatio = LuaReadFloat(L, t, "screen_ratio", a.screenRatio);
+        a.rangeToleranceKm = LuaReadFloat(L, t, "range_tolerance_km", a.rangeToleranceKm);
+        LuaPop(L);
+
+        const auto finite = [](std::initializer_list<float> values)
+        {
+            return std::all_of(values.begin(), values.end(), [](float v) { return std::isfinite(v); });
+        };
+        if (!finite({ a.holdScore, a.inertiaBonus, a.defendFrontageKm, a.attackFrontageKm })
+            || !(a.rallyRadiusKm > 0.0f && a.raidRadiusKm > 0.0f && a.battalionThinkSeconds > 0.0f && a.rearKm >= 0.0f)
+            || !(a.recoverHealth >= 0.0f && a.recoverHealth <= 1.0f && a.coverHpRatio >= 0.0f && a.coverHpRatio <= 1.0f)
+            || !(a.standoffRatio > 0.0f && a.standoffRatio <= 1.0f && a.artilleryRatio > 0.0f && a.artilleryRatio <= 1.0f)
+            || !(a.screenRatio >= 0.0f && a.screenRatio <= 1.0f && a.rangeToleranceKm >= 0.0f)
+            || !finite({ a.rallyRadiusKm, a.raidRadiusKm, a.battalionThinkSeconds, a.rearKm, a.rangeToleranceKm }))
+        {
+            LuaFail("ai_tuning has invalid values");
         }
     }
 
@@ -382,6 +422,7 @@ bool LoadGameData(const std::string& path, GameData& out, std::string& error)
     {
         GameData data;
         ReadConfig(L, root, data.config);
+        ReadAiTuning(L, root, data.ai);
         ReadTerrain(L, root, data);
         ReadWeather(L, root, data);
         ReadBases(L, root, data);

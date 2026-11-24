@@ -19,13 +19,14 @@ void BuildBlackboard(const World& world, const GameData& data, int self, AiBlack
 std::vector<AiTask> PlanCommand(const AiBlackboard& board, const DifficultyDef& difficulty);
 
 // utility.cpp: 사단 하나의 행동 후보 전부와 점수. 0번은 항상 Hold. RL은 이 목록 안에서만 고른다.
-std::vector<AiDecision> ListDivisionCandidates(const World& world, const AiBlackboard& board, int self, entt::entity entity);
+std::vector<AiDecision> ListDivisionCandidates(const World& world, const GameData& data, const AiBlackboard& board, int self,
+                                               entt::entity entity);
 
 // utility.cpp: 점수 최고 후보 인덱스 (동점이면 앞쪽).
 std::size_t BestCandidate(const std::vector<AiDecision>& candidates);
 
 // utility.cpp: 사단 하나의 행동을 점수로 고른다 (= 후보 중 최고점).
-AiDecision ChooseDivisionAction(const World& world, const AiBlackboard& board, int self, entt::entity entity);
+AiDecision ChooseDivisionAction(const World& world, const GameData& data, const AiBlackboard& board, int self, entt::entity entity);
 
 // battalion_ai.cpp: 대대마다 사단 담당 범위 안에서 위치를 고르고 움직인다 (매 틱).
 void UpdateBattalionAI(World& world, const GameData& data, float dt);

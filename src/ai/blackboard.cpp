@@ -10,7 +10,6 @@
 
 namespace
 {
-    constexpr float RallyRadiusKm = 60.0f;
 
     float StrengthNear(const std::vector<std::pair<Vec2, float>>& units, Vec2 point, float radius)
     {
@@ -151,5 +150,5 @@ void BuildBlackboard(const World& world, const GameData& data, int self, AiBlack
     {
         board.rallyHex = -1;
     }
-    board.rallyGathered = board.rallyHex >= 0 ? StrengthNear(own, board.rallyPosition, RallyRadiusKm) : 0.0f;
+    board.rallyGathered = board.rallyHex >= 0 ? StrengthNear(own, board.rallyPosition, data.ai.rallyRadiusKm) : 0.0f;
 }

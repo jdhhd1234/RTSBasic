@@ -4,6 +4,7 @@
 #include "ai/ai_types.hpp"
 #include "sim/map.hpp"
 #include "sim/map_features.hpp"
+#include "sim/match_script.hpp"
 #include "sim/profiler.hpp"
 
 #include <entt/entt.hpp>
@@ -114,4 +115,5 @@ struct World
     int winner = -1;
     std::string endReason;
     Profiler profiler;                       // 샌드박스 프로파일러 (기본 꺼짐)
+    MatchScript script;                      // 시나리오 Lua 스크립트 (읽기 전용 상태만 봄)
 };
